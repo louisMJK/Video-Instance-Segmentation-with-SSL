@@ -1,0 +1,8 @@
+.vscode
+.DS_Store
+__pycache__
+*.gz
+
+dataset/train
+dataset/unlabeled
+dataset/val
