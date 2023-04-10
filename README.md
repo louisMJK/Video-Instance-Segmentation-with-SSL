@@ -1,2 +1,5 @@
 # Deep-Learning-VQA
-Competition of the NYU Deep Learning Course Spring 2023
+
+Some resources
+
+- [TorchVision Object Detection Finetuning Tutorial](https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html#putting-everything-together)
