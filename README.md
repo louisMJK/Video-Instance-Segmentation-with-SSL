@@ -1,5 +1,9 @@
 # Deep-Learning-VQA
 
-Some resources
+## Resources
 
-- [TorchVision Object Detection Finetuning Tutorial](https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html#putting-everything-together)
+- Image Segmentation
+
+  - [Mask2Former Intro](https://huggingface.co/blog/mask2former)
+
+  - [TorchVision Object Detection Finetuning Tutorial](https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html#putting-everything-together)
