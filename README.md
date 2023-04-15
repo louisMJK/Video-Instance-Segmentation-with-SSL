@@ -1,11 +1,11 @@
 # Deep-Learning-VQA
 
-## Resources
+## Models
 
-- Image Segmentation
+- VICRegL
 
-  - Models: SegFormer, Mask2Former
+  - [GitHub](https://github.com/facebookresearch/vicregl)
 
-  - [Mask2Former Intro](https://huggingface.co/blog/mask2former)
+- BYOL
 
-  - [TorchVision Object Detection Finetuning Tutorial](https://pytorch.org/tutorials/intermediate/torchvision_tutorial.html#putting-everything-together)
+  - [Github](https://github.com/lucidrains/pixel-level-contrastive-learning)
