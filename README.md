@@ -1,6 +1,6 @@
-# Deep-Learning-VQA
+# Video Instance Segmentation with Self-Supervised Learning
 
-## Models
+## Self-Supervised Learning Models
 
 - VICRegL
 
