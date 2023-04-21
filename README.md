@@ -9,3 +9,5 @@
 - BYOL
 
   - [Github](https://github.com/lucidrains/pixel-level-contrastive-learning)
+  
+  - https://github.com/lightly-ai/lightly
