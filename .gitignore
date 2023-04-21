@@ -6,3 +6,4 @@ __pycache__
 dataset/train
 dataset/unlabeled
 dataset/val
+output
