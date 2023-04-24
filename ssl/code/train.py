@@ -38,17 +38,17 @@ group.add_argument('--img-val-resize', type=int, default=256)
 # Optimizer & Scheduler parameters
 group = parser.add_argument_group('Optimizer parameters')
 group.add_argument('--sched', default='', type=str, metavar='SCHEDULER')
-group.add_argument('--optim', default='sgd', type=str, metavar='OPTIMIZER')
+group.add_argument('--optim', default='lars', type=str, metavar='OPTIMIZER') 
 group.add_argument('--momentum', type=float, default=0.9, metavar='M')
-group.add_argument('--weight-decay', type=float, default=2e-5)
-group.add_argument('--lr-base', type=float, default=0.06, metavar='LR')
+group.add_argument('--weight-decay', type=float, default=0)
+group.add_argument('--lr-base', type=float, default=0.2, metavar='LR')
 group.add_argument('--step-size', type=int, default=2)
 group.add_argument('--lr-decay', type=float, default=0.9)
 
 # Misc
 group = parser.add_argument_group('Miscellaneous parameters')
-group.add_argument('--epochs', type=int, default=10, metavar='N')
-group.add_argument('-b', '--batch-size', type=int, default=128, metavar='N')
+group.add_argument('--epochs', type=int, default=40, metavar='N')
+group.add_argument('-b', '--batch-size', type=int, default=4096, metavar='N')
 group.add_argument('--workers', type=int, default=4, metavar='N')
 group.add_argument('--inference', action='store_true', default=True)
 group.add_argument('--data-dir', default='../../../dataset/', type=str)
@@ -117,7 +117,7 @@ def main():
     # Dataset
     print("Loading dataset...")
     data_dir = args.data_dir
-    trans = SimCLRTransform(input_size=130)
+    trans = trans = SimCLRTransform(input_size=(160,240), min_scale=0.2)
     unlabeleddataset = UnlabeledDataset(root=os.path.join(data_dir, 'unlabeled'))
     dataset = LightlyDataset.from_torch_dataset(unlabeleddataset, transform=trans)
     dataset_size = len(dataset)
