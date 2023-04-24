@@ -103,9 +103,6 @@ def main():
     # optimizer
     optimizer = create_optimizer(model, args)
 
-    # loss function
-    loss = NegativeCosineSimilarity()
-
     # scheduler
     if args.sched == 'cosine':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
