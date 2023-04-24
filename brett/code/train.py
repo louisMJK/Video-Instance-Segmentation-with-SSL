@@ -104,7 +104,7 @@ def main():
     optimizer = create_optimizer(model, args)
 
     # loss function
-    loss_fn = NegativeCosineSimilarity()
+    loss = NegativeCosineSimilarity()
 
     # scheduler
     if args.sched == 'cosine':
