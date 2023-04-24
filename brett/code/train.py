@@ -84,12 +84,13 @@ def main():
 
     # model
     if args.backbone == 'resnet50':
-        backbone = nn.Sequential(*list(resnet50().children())[:-1])
+        backbone = resnet50()
     elif args.backbone == 'vit_b_16':
-        backbone = nn.Sequential(*list(vit_b_16().children())[:-1])
+        backbone = vit_b_16()
     else:
-        backbone = nn.Sequential(*list(resnet18().children())[:-1])
-    model = BYOL(backbone)
+        backbone = resnet18()
+
+    model = BYOL(nn.Sequential(*list(backbone.children())[:-1]))
     model.to(device)
 
 
@@ -174,6 +175,7 @@ def main():
         if avg_loss < best_loss:
             best_loss = avg_loss
             torch.save(model, exp_dir + "model_best.pth")
+            torch.save(backbone, exp_dir+"backbone_best.pth")
             print("Best model saved with loss: ", best_loss)
             print('-' * 30)
         losses.append(avg_loss)
