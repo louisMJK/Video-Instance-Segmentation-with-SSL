@@ -37,7 +37,7 @@ group.add_argument('--img-val-resize', type=int, default=256)
 
 # Optimizer & Scheduler parameters
 group = parser.add_argument_group('Optimizer parameters')
-group.add_argument('--sched', default='cosine', type=str, metavar='SCHEDULER')
+group.add_argument('--sched', default='', type=str, metavar='SCHEDULER')
 group.add_argument('--optim', default='sgd', type=str, metavar='OPTIMIZER')
 group.add_argument('--momentum', type=float, default=0.9, metavar='M')
 group.add_argument('--weight-decay', type=float, default=2e-5)
@@ -83,12 +83,13 @@ def main():
 
     # model
     if args.backbone == 'resnet50':
-        backbone = nn.Sequential(*list(resnet50().children())[:-1])
+        backbone = resnet50()
     elif args.backbone == 'vit_b_16':
-        backbone = nn.Sequential(*list(vit_b_16().children())[:-1])
+        backbone = vit_b_16()
     else:
-        backbone = nn.Sequential(*list(resnet18().children())[:-1])
-    model = BYOL(backbone)
+        backbone = resnet18()
+
+    model = BYOL(nn.Sequential(*list(backbone.children())[:-1]))
     model.to(device)
 
 
@@ -101,9 +102,6 @@ def main():
     # optimizer
     optimizer = create_optimizer(model, args)
 
-    # loss function
-    loss_fn = NegativeCosineSimilarity()
-
     # scheduler
     if args.sched == 'cosine':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
@@ -113,8 +111,7 @@ def main():
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, 
                                               gamma=args.lr_decay, verbose=args.verbose)
     else:
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.lr_decay)
-
+        scheduler = None
 
 
     # Dataset
@@ -130,7 +127,8 @@ def main():
         collate_fn=MultiViewCollate(),
         shuffle=True, 
         drop_last=True, 
-        num_workers=args.workers)
+        num_workers=args.workers
+    )
 
 
     #loss function
@@ -148,6 +146,7 @@ def main():
         start_time = time.time()
         total_loss = 0
         momentum_val = cosine_schedule(epoch, args.epochs, 0.996, 1)
+
         for (x0, x1), _, _ in dataloader:
             update_momentum(model.backbone, model.backbone_momentum, m=momentum_val)
             update_momentum(
@@ -164,20 +163,22 @@ def main():
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+
+        if scheduler is not None:
+            scheduler.step()
+
         avg_loss = total_loss / len(dataloader)
-        print(f"epoch: {epoch:>02}, loss: {avg_loss:.5f}, time:{time.time()-start_time:.2f}")
-        scheduler.step()
-        
+        print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}],  Loss: {avg_loss:.3e},  Time:{time.time()-start_time:.0f}', end='')
+
         #save best model
         if avg_loss < best_loss:
             best_loss = avg_loss
             torch.save(model, exp_dir + "model_best.pth")
-            print("Best model saved with loss: ", best_loss)
-            print('-' * 30)
+            torch.save(backbone, exp_dir + "backbone_best.pth")
+            print("Best model saved with loss: ", best_loss.item())
+        print()
         losses.append(avg_loss)
         
-        
-    
     print("Training finished")
     print('-' * 30)
 

@@ -1,11 +1,13 @@
-from torch.utils.data import Dataset
-import os
-from PIL import Image
-import copy
 from torch import nn
+from torch.utils.data import Dataset
 from lightly.models.modules import BYOLPredictionHead, BYOLProjectionHead
 from lightly.models.utils import deactivate_requires_grad, update_momentum
 from lightly.utils.scheduler import cosine_schedule
+
+import os
+import copy
+from PIL import Image, ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class UnlabeledDataset(Dataset):
