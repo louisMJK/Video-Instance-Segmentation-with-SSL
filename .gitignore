@@ -9,3 +9,5 @@ dataset/val
 
 brett/output
 ./output/
+
+data_voc/

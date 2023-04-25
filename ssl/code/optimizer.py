@@ -1,6 +1,4 @@
 from torch import optim
-from torchlars import LARS
-#pip install torchlars
 
 
 def create_optimizer(model, args):
@@ -19,6 +17,7 @@ def create_optimizer(model, args):
         )
     
     elif args.optim == 'lars':
+        from torchlars import LARS
         base_optimizer = optimizer = optim.SGD(
             model.parameters(), 
             lr=args.lr_base, 

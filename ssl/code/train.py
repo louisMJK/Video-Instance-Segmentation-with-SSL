@@ -31,24 +31,21 @@ parser = argparse.ArgumentParser(description='PyTorch Transfer Learning')
 
 # Model parameters
 group = parser.add_argument_group('Model parameters')
-group.add_argument('--backbone', default='resnet18', type=str, metavar='BACKBONE')
+group.add_argument('--backbone', default='resnet50', type=str, metavar='BACKBONE')
 group.add_argument('--img-size', type=int, default=224)
-group.add_argument('--img-val-resize', type=int, default=256)
 
 # Optimizer & Scheduler parameters
 group = parser.add_argument_group('Optimizer parameters')
-group.add_argument('--sched', default='', type=str, metavar='SCHEDULER')
-group.add_argument('--optim', default='lars', type=str, metavar='OPTIMIZER') 
+group.add_argument('--sched', default='cosine', type=str, metavar='SCHEDULER')
+group.add_argument('--optim', default='sgd', type=str, metavar='OPTIMIZER') 
 group.add_argument('--momentum', type=float, default=0.9, metavar='M')
-group.add_argument('--weight-decay', type=float, default=0)
-group.add_argument('--lr-base', type=float, default=0.2, metavar='LR')
-group.add_argument('--step-size', type=int, default=2)
-group.add_argument('--lr-decay', type=float, default=0.9)
+group.add_argument('--weight-decay', type=float, default=1e-6)
+group.add_argument('--lr-base', type=float, default=1e-2, metavar='LR')
 
 # Misc
 group = parser.add_argument_group('Miscellaneous parameters')
 group.add_argument('--epochs', type=int, default=40, metavar='N')
-group.add_argument('-b', '--batch-size', type=int, default=4096, metavar='N')
+group.add_argument('-b', '--batch-size', type=int, default=128, metavar='N')
 group.add_argument('--workers', type=int, default=4, metavar='N')
 group.add_argument('--inference', action='store_true', default=True)
 group.add_argument('--data-dir', default='../../../dataset/', type=str)
@@ -96,7 +93,7 @@ def main():
     with open(os.path.join(exp_dir, 'model_summary.txt'), 'w') as f:
         f.write(str(model))
         f.write('\n\n')
-        f.write(str(summary(model, input_size=(3, args.img_size, args.img_size), batch_dim=0)))
+        f.write(str(summary(model, input_size=(3, 160, 240), batch_dim=0)))
 
 
     # optimizer
@@ -120,7 +117,6 @@ def main():
     trans = trans = SimCLRTransform(input_size=(160,240), min_scale=0.2)
     unlabeleddataset = UnlabeledDataset(root=os.path.join(data_dir, 'unlabeled'))
     dataset = LightlyDataset.from_torch_dataset(unlabeleddataset, transform=trans)
-    dataset_size = len(dataset)
     dataloader = DataLoader(
         dataset, 
         batch_size=args.batch_size, 
@@ -174,8 +170,8 @@ def main():
         if avg_loss < best_loss:
             best_loss = avg_loss
             torch.save(model, exp_dir + "model_best.pth")
-            torch.save(backbone, exp_dir + "backbone_best.pth")
-            print("Best model saved with loss: ", best_loss.item())
+            torch.save(backbone, exp_dir + "backbone" + str(args.backbone) + ".pth")
+            print("  Best model saved, loss: ", best_loss.item())
         print()
         losses.append(avg_loss)
         

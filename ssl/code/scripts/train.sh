@@ -1,3 +1,5 @@
 python3 ../train.py \
-    --epochs 40 --batch-size 1024 \
-    --weight-decay 0 \
+    --backbone resnet50 \
+    --batch-size 64 \
+    --optim sgd --lr-base 1e-2 \
+    --epochs 40 \

@@ -7,7 +7,7 @@ from lightly.utils.scheduler import cosine_schedule
 import os
 import copy
 from PIL import Image, ImageFile
-ImageFile.LOAD_TRUNCATED_IMAGES = True
+# ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class UnlabeledDataset(Dataset):
@@ -35,14 +35,13 @@ class UnlabeledDataset(Dataset):
     
 
 
-
 class BYOL(nn.Module):
     def __init__(self, backbone):
         super().__init__()
 
         self.backbone = backbone
-        self.projection_head = BYOLProjectionHead(512, 1024, 256)
-        self.prediction_head = BYOLPredictionHead(256, 1024, 256)
+        self.projection_head = BYOLProjectionHead(2048, 4096, 256)
+        self.prediction_head = BYOLPredictionHead(256, 4096, 256)
 
         self.backbone_momentum = copy.deepcopy(self.backbone)
         self.projection_head_momentum = copy.deepcopy(self.projection_head)
