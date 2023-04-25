@@ -46,6 +46,10 @@ singularity exec --nv \
     /scratch/yl10745/src/cuda11.7.99-cudnn8.5-devel-ubuntu22.04.2.sif \
     /bin/bash
 
+
+#singluarity yb970
+singularity exec --overlay my_pytorch.ext3:rw /scratch/yb970/dl/cuda11.6.124-cudnn8.4.0.27-devel-ubuntu20.04.4.sif /bin/bash
+
 source /ext3/env.sh
 source /etc/profile
 
