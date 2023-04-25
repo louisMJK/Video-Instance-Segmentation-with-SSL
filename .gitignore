@@ -11,3 +11,5 @@ brett/output
 ./output/
 
 data_voc/
+
+*.pth
