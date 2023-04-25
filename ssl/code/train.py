@@ -27,12 +27,14 @@ DATA_MEAN = (0.485, 0.456, 0.406)
 DATA_STD = (0.229, 0.224, 0.225)
 
 
-parser = argparse.ArgumentParser(description='PyTorch Transfer Learning')
+parser = argparse.ArgumentParser(description='PyTorch Self-Supervised Learning')
 
 # Model parameters
 group = parser.add_argument_group('Model parameters')
 group.add_argument('--backbone', default='resnet50', type=str, metavar='BACKBONE')
 group.add_argument('--img-size', type=int, default=224)
+group.add_argument('--use-trained', action='store_true', default=False)
+group.add_argument('--model-dir', default='../../output/backbone-resnet50-0.8470/resnet50.pth', type=str)
 
 # Optimizer & Scheduler parameters
 group = parser.add_argument_group('Optimizer parameters')
@@ -41,7 +43,7 @@ group.add_argument('--optim', default='sgd', type=str, metavar='OPTIMIZER')
 group.add_argument('--momentum', type=float, default=0.9, metavar='M')
 group.add_argument('--weight-decay', type=float, default=1e-6)
 group.add_argument('--lr-base', type=float, default=1e-2, metavar='LR')
-
+ 
 # Misc
 group = parser.add_argument_group('Miscellaneous parameters')
 group.add_argument('--epochs', type=int, default=40, metavar='N')
@@ -80,7 +82,11 @@ def main():
 
     # model
     if args.backbone == 'resnet50':
-        backbone = resnet50()
+        if args.use_trained:
+            backbone = torch.load(args.model_dir, map_location=torch.device(device))
+            print(f'Backbone loaded from {args.model_dir}')
+        else:
+            backbone = resnet50()
     elif args.backbone == 'vit_b_16':
         backbone = vit_b_16()
     else:
@@ -170,7 +176,7 @@ def main():
         if avg_loss < best_loss:
             best_loss = avg_loss
             torch.save(model, exp_dir + "model_best.pth")
-            torch.save(backbone, exp_dir + "backbone" + str(args.backbone) + ".pth")
+            torch.save(backbone, exp_dir + "backbone-" + str(args.backbone) + ".pth")
             print("  Best model saved, loss: ", best_loss.item())
         print()
         losses.append(avg_loss)
