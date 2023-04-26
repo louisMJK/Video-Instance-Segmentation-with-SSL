@@ -25,10 +25,10 @@ class MaskDataset(Dataset):
         img = Image.open(img_path).convert("RGB")
         # load mask
         mask_path = os.path.join(self.root, self.vid_list[vid_idx], 'mask.npy')
-        target = np.load(mask_path)[img_idx]
+        target = torch.Tensor(np.load(mask_path)[img_idx])
         # transforms
         if self.transform is not None:
-            img = self.transform(img)
+            img, target = self.transform(img, target)
         return img, target
 
 

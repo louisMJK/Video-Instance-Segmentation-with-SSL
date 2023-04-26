@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, distributed
 from torchvision import transforms
+import torch.distributed as dist
 from torchinfo import summary
 import torchmetrics
 
@@ -20,6 +21,7 @@ import matplotlib.pyplot as plt
 from optimizer import create_optimizer
 from utils import MaskDataset, criterion, init_distributed_mode, mkdir
 from models import create_model
+from transforms import SegmentationTrainTransform, SegmentationValTransform
 
 
 DATA_MEAN = (0.485, 0.456, 0.406)
@@ -87,16 +89,8 @@ def main():
 
 
     # Data augmentation
-    transform_train = transforms.Compose([
-        transforms.RandomResizedCrop(size=(160, 240), scale=(0.3, 1)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=torch.tensor(DATA_MEAN), std=torch.tensor(DATA_STD)),
-    ])
-    transform_val = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=torch.tensor(DATA_MEAN), std=torch.tensor(DATA_STD)),
-    ])
+    transform_train = SegmentationTrainTransform()
+    transform_val = SegmentationValTransform()
 
     # Dataset
     print("Loading dataset...")
@@ -119,7 +113,6 @@ def main():
         sampler=train_sampler,
         num_workers=args.workers,
         # collate_fn=utils.collate_fn,
-        drop_last=True,
     )
     loader_val = DataLoader(
         dataset_val, 
@@ -175,10 +168,6 @@ def main():
         scheduler = optim.lr_scheduler.PolynomialLR(optimizer, total_iters=iters_per_epoch * (args.epochs), power=0.9)
     elif args.sched == 'cosine':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
-    elif args.sched == 'exp':
-        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_decay, verbose=args.verbose)
-    elif args.sched == 'step':
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.lr_decay, verbose=args.verbose)
     else:
         scheduler = None
     
@@ -190,12 +179,8 @@ def main():
     print(f"Training {args.model} for {args.epochs} epochs ...")
 
     model_best, losses, ious = \
-        train_model(model, loss_fn, optimizer, scheduler, dataloaders, dataset_sizes, train_sampler, device, args)
+        train_model(model, loss_fn, optimizer, scheduler, dataloaders, dataset_sizes, train_sampler, device, model_without_ddp, args)
     
-
-    # save best model
-    torch.save(model_best, exp_dir + "model_" + str(max(ious['val'])) + '.pth')
-    print("Best model saved.")
     print('-' * 30)
     
     # make plot and log
@@ -215,6 +200,7 @@ def train_model(
         dataset_sizes, 
         train_sampler,
         device,
+        model_without_ddp,
         args,
 ):
     t_start = time.time()
@@ -223,19 +209,17 @@ def train_model(
     best_jac = 0.0
     losses = {'train': [], 'val': []}
     jaccard_indices = {'train': [], 'val': []}
-    jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49)
+    jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49, average='micro')
 
     for epoch in range(args.epochs):
-        t1 = time.time()
         if args.distributed:
             train_sampler.set_epoch(epoch)
 
         for phase in ['train', 'val']:
+            t1 = time.time()
             if phase == 'train':
                 model.train()  
             else:
-                if (epoch + 1) % args.val_interval != 0 and epoch != 0:
-                    continue
                 model.eval()
 
             running_loss = 0.0
@@ -262,7 +246,7 @@ def train_model(
                             scheduler.step()
 
                 running_loss += loss.item() * inputs.size(0)
-                running_indices += jaccard_idx
+                running_indices += jaccard_idx * inputs.size(0)
 
             if phase == 'train':
                 scheduler.step()
@@ -272,13 +256,17 @@ def train_model(
             losses[phase].append(epoch_loss)
             jaccard_indices[phase].append(epoch_jac)
 
-            print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}], {phase}\tLoss: {epoch_loss:.3e},  Jaccard Idx: {epoch_jac:.4f},  Time: {(time.time()-t1):.0f}s')
+            if phase == 'train':
+                print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}], Train Loss: {epoch_loss:.3e},  Jaccard Idx: {epoch_jac:.4f}', end='')
+            else:
+                print(f'   Val Loss: {epoch_loss:.3e},  Jaccard Idx: {epoch_jac:.4f}   Time: {(time.time()-t1):.0f}s')
 
             # save best model
             if phase == 'val' and epoch_jac > best_jac:
                 best_jac = epoch_jac
                 best_model_wts = copy.deepcopy(model.state_dict())
-                torch.save(model, args.exp_dir + str(args.model) + '_best.pth')
+                if dist.get_rank() == 0:
+                    torch.save(model_without_ddp.state_dict(), args.exp_dir + str(args.model) + '_best.pth')
 
     time_elapsed = time.time() - t_start
     print(f'Training completed in {time_elapsed // 60:.0f} min {time_elapsed % 60:.0f} s')
