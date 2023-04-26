@@ -10,7 +10,6 @@ import numpy as np
 from datetime import datetime
 import yaml
 import argparse
-import csv
 import copy
 import pandas as pd
 import matplotlib.pyplot as plt
