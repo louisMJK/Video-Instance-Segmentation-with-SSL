@@ -2,7 +2,6 @@ import torch
 from torch.nn import MSELoss
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchinfo import summary
 
 import os
 import time
@@ -10,7 +9,6 @@ import numpy as np
 from datetime import datetime
 import yaml
 import argparse
-import csv
 import copy
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -44,10 +42,11 @@ group.add_argument('--epochs', type=int, default=10, metavar='N')
 group.add_argument('-b', '--batch-size', type=int, default=64, metavar='N')
 group.add_argument('--workers', type=int, default=4, metavar='N')
 group.add_argument('--inference', action='store_true', default=True)
-group.add_argument('--data-dir', default='dataset/', type=str)
+group.add_argument('--data-dir', default='../../dataset/', type=str)
 group.add_argument('--out-dir', default='../../output/', type=str)
 group.add_argument('--verbose', action='store_true', default=False)
 group.add_argument('--val-interval', type=int, default=2)
+group.add_argument('--sample-interval', type=int, default=5)
 
 
 
@@ -59,14 +58,29 @@ def _parse_args():
 
 def plot_loss_and_acc(train_losses, val_losses, out_pth="model.pth"):
     fig, axs = plt.subplots(1, 1, figsize=(16, 6))
-    axs[0].plot(train_losses)
-    axs[0].plot(val_losses)
-    axs[0].set_yscale('log')
-    axs[0].grid()
-    axs[0].set_xlabel('Epoch')
-    axs[0].set_ylabel('Loss')
-    axs[0].legend(["Train loss", "Val loss"])
+    axs.plot(train_losses)
+    axs.plot(val_losses)
+    axs.set_yscale('log')
+    axs.grid()
+    axs.set_xlabel('Epoch')
+    axs.set_ylabel('Loss')
+    axs.legend(["Train loss", "Val loss"])
     fig.savefig(out_pth)
+
+def visualize(sample_imgs_unstack, target_img, output_img, outpath = None):
+    fig, axs = plt.subplots(1, 13, figsize=(20, 20))
+    for i in range(11):
+        axs[i].imshow(sample_imgs_unstack[i].permute(1, 2, 0))
+        axs[i].set_title(i)
+        axs[i].axis('off')
+    axs[11].imshow(target_img.permute(1, 2, 0))
+    axs[11].set_title('target')
+    axs[11].axis('off')
+    axs[12].imshow(output_img.permute(1, 2, 0), alpha=0.5)
+    axs[12].set_title('output')
+    axs[12].axis('off')
+    plt.tight_layout()
+    plt.savefig(outpath)
 
 def main():
     print('-' * 30)
@@ -86,7 +100,8 @@ def main():
     print(f'Training on 1 device ({device}).')
 
     # model
-    model = Predictor(3, 9, (args.batch_size, args.height, args.width), args.kernel_size, device).to(device)
+    model = Predictor(3, 9, (args.batch_size, args.height, args.width), args.kernel_size, device)
+    model.to(device)
 
 
     # with open(os.path.join(exp_dir, 'model_summary.txt'), 'w') as f:
@@ -114,7 +129,8 @@ def main():
     # Dataset
     print("Loading dataset...")
     data_dir = args.data_dir
-    train_dataset = Unlabledtrainpred(root=os.path.join(data_dir, 'unlabeled'))
+    train_dataset = Unlabledtrainpred(root=os.path.join(data_dir, 'val'))# TODO: change to train
+    sample_imgs, sample_target = train_dataset[0]
     train_dataloader = DataLoader(
         train_dataset, 
         batch_size=args.batch_size,
@@ -175,6 +191,17 @@ def main():
             print(f"epoch: {epoch:>02}, val_loss: {avg_loss:.5f}, validation_time:{time.time()-start_time:.2f}")
             losses['val'].append(avg_loss)
 
+        #sample visualize
+        if epoch % args.sample_interval == 0:
+            model.eval()
+            #use x to input to model
+            x = sample_imgs.to(device)
+            x = x.unsqueeze(0) #add batch dim
+            output = model(x)
+            output = output.detach().cpu().squeeze(0)
+            sample_imgs_unstack = torch.unbind(sample_imgs, dim=0)
+            visualize(sample_imgs_unstack, sample_target, output, exp_dir + f'sample_{epoch}.pdf')
+        
         #save best model
         if avg_loss < best_loss:
             best_loss = avg_loss
