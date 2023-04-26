@@ -129,7 +129,7 @@ def main():
     # Dataset
     print("Loading dataset...")
     data_dir = args.data_dir
-    train_dataset = Unlabledtrainpred(root=os.path.join(data_dir, 'val'))# TODO: change to train
+    train_dataset = Unlabledtrainpred(root=os.path.join(data_dir, 'unlabeled'))
     sample_imgs, sample_target = train_dataset[0]
     train_dataloader = DataLoader(
         train_dataset, 
@@ -171,10 +171,10 @@ def main():
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        avg_loss = total_loss/len(train_dataloader)
-        print(f"epoch: {epoch:>02}, training_loss: {avg_loss:.5f}, training_time:{time.time()-start_time:.2f}")
+        avg_train_loss = total_loss/len(train_dataloader)
+        print(f"epoch: {epoch:>02}, training_loss: {avg_train_loss:.5f}, training_time:{time.time()-start_time:.2f}")
         scheduler.step()
-        losses['train'].append(avg_loss)
+        losses['train'].append(avg_train_loss)
 
         #validation
         if epoch % args.val_interval == 0:
@@ -187,9 +187,16 @@ def main():
                 output = model(x)
                 loss = criterion(output, target)
                 total_loss += loss.item()
-            avg_loss = total_loss/len(val_dataloader)
-            print(f"epoch: {epoch:>02}, val_loss: {avg_loss:.5f}, validation_time:{time.time()-start_time:.2f}")
-            losses['val'].append(avg_loss)
+            avg_val_loss = total_loss/len(val_dataloader)
+            print(f"epoch: {epoch:>02}, val_loss: {avg_val_loss:.5f}, validation_time:{time.time()-start_time:.2f}")
+            losses['val'].append(avg_val_loss)
+
+            #save best model (only save in validation setting)
+            if avg_val_loss < best_loss:
+                best_loss = avg_val_loss
+                torch.save(model, exp_dir + "model_best.pth")
+                best_model_wts = copy.deepcopy(model.state_dict())
+                print("Best model saved with loss: ", best_loss)
 
         #sample visualize
         if epoch % args.sample_interval == 0:
@@ -201,13 +208,9 @@ def main():
             output = output.detach().cpu().squeeze(0)
             sample_imgs_unstack = torch.unbind(sample_imgs, dim=0)
             visualize(sample_imgs_unstack, sample_target, output, exp_dir + f'sample_{epoch}.pdf')
+            print("Sample image saved.")
         
-        #save best model
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-            torch.save(model, exp_dir + "model_best.pth")
-            best_model_wts = copy.deepcopy(model.state_dict())
-            print("Best model saved with loss: ", best_loss)
+        
         
         model.load_state_dict(best_model_wts)
         print('-' * 30)

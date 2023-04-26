@@ -1,13 +1,11 @@
 from torch.utils.data import Dataset
 import os
-from PIL import Image
+from PIL import Image, ImageFile
 import copy
 from torch import nn
 from torchvision import transforms
 import torch
-from lightly.models.modules import BYOLPredictionHead, BYOLProjectionHead
-from lightly.models.utils import deactivate_requires_grad, update_momentum
-from lightly.utils.scheduler import cosine_schedule
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 class Unlabledtrainpred(Dataset):
     def __init__(self, root='../../dataset/unlabeled/', transform=transforms.ToTensor()):
