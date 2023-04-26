@@ -1,9 +1,7 @@
-from email import utils
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, distributed
-from torchvision import transforms
 import torch.distributed as dist
 from torchinfo import summary
 import torchmetrics
@@ -18,14 +16,9 @@ import argparse
 import copy
 import matplotlib.pyplot as plt
 
-from optimizer import create_optimizer
 from utils import MaskDataset, criterion, init_distributed_mode, mkdir
 from models import create_model
 from transforms import SegmentationTrainTransform, SegmentationValTransform
-
-
-DATA_MEAN = (0.485, 0.456, 0.406)
-DATA_STD = (0.229, 0.224, 0.225)
 
 
 parser = argparse.ArgumentParser(description='PyTorch Instance Segementation')
@@ -34,7 +27,7 @@ parser = argparse.ArgumentParser(description='PyTorch Instance Segementation')
 group = parser.add_argument_group('Model parameters')
 group.add_argument('--model', default='fcn_resnet50', type=str)
 group.add_argument('--backbone', default='resnet50', type=str)
-group.add_argument('--backbone-dir', default='../../../ssl/output/backbone-resnet50-0.8470/resnet50.pth', type=str)
+group.add_argument('--backbone-dir', default='../../../ssl/output/backbone-resnet50-0.9041/resnet50_best.pth', type=str)
 group.add_argument('--freeze', action='store_true', default=False)
 
 # Optimizer & Scheduler parameters
@@ -69,23 +62,23 @@ def _parse_args():
 
 def main():
     args, args_text = _parse_args()
-    
-    # logging
     out_dir = args.out_dir
     exp_name = '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S")])
     exp_dir = out_dir + exp_name + "/"
     args.exp_dir = exp_dir
     mkdir(exp_dir)
-    with open(os.path.join(exp_dir, 'config.yaml'), 'w') as f:
-        f.write(args_text)
-
+    
     # distributed 
     init_distributed_mode(args)
     print(args)
 
+    # logging
+    with open(os.path.join(exp_dir, 'config.yaml'), 'w') as f:
+        f.write(args_text)
+
     # GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    print(f'Training on {device}.')
+    print(f'\nTraining on {device}.')
 
 
     # Data augmentation
@@ -123,15 +116,8 @@ def main():
     dataloaders = {'train': loader_train, 'val': loader_val}
 
 
-    # backbone
-    if args.backbone == 'resnet50':
-        backbone = torch.load(args.backbone_dir, map_location=torch.device(device))
-    else:
-        print('backbone ??????????')
-
-
     # model
-    model = create_model(backbone, args)
+    model = create_model(args)
     model.to(device)
     with open(os.path.join(exp_dir, 'model_summary.txt'), 'w') as f:
         f.write(str(model))
@@ -147,6 +133,7 @@ def main():
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         model_without_ddp = model.module
     
+
     params_to_optimize = [
         {"params": [p for p in model_without_ddp.backbone.parameters() if p.requires_grad]},
         {"params": [p for p in model_without_ddp.classifier.parameters() if p.requires_grad]},
@@ -154,7 +141,6 @@ def main():
     if True:
         params = [p for p in model_without_ddp.aux_classifier.parameters() if p.requires_grad]
         params_to_optimize.append({"params": params, "lr": args.lr_base * 10})
-
 
     # optimizer
     if args.optim == 'sgd':

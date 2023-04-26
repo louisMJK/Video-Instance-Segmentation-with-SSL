@@ -1,23 +1,24 @@
 import torch
-import torchvision
 from torchvision import models
+from collections import OrderedDict
 
 
-def create_model(backbone, args):
-    
-    # model = models.segmentation.fcn_resnet50(
-    #     weights=None,
-    #     weights_backbone=backbone.state_dict(),
-    #     num_classes=49,
-    #     aux_loss=True,
-    # )
-
+def create_model(args):
     model = models.segmentation.fcn_resnet50(
         weights=None,
-        weights_backbone=models.ResNet50_Weights.IMAGENET1K_V2,
+        weights_backbone=None,
         num_classes=49,
         aux_loss=True,
     )
+
+    state_dict = torch.load(args.backbone_dir, map_location='cpu')
+
+    model_backbone_keys = list(model.backbone.state_dict().keys())
+    backbone_keys = list(state_dict.keys())
+    key_dict = {backbone_keys[i]: model_backbone_keys[i] for i in range(len(backbone_keys))}
+    adapted_dict = OrderedDict({key_dict[k] : v for k, v in state_dict.items()})
+
+    model.backbone.load_state_dict(adapted_dict, strict=True)
 
     if args.freeze:
         for p in model.backbone.parameters():
