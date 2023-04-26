@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler, distributed
+from torch.nn.parallel.distributed import DistributedDataParallel
+import torch.distributed as dist
 from torchinfo import summary
 
 import os
@@ -14,10 +16,11 @@ import csv
 
 from torchvision.models import resnet18, resnet50, vit_b_16
 from optimizer import create_optimizer
-from utils import UnlabeledDataset, BYOL
+from models import BYOL
+from utils import UnlabeledDataset, mkdir, init_distributed_mode
 from lightly.data.multi_view_collate import MultiViewCollate
 from lightly.loss import NegativeCosineSimilarity
-from lightly.models.utils import deactivate_requires_grad, update_momentum
+from lightly.models.utils import update_momentum
 from lightly.transforms.simclr_transform import SimCLRTransform
 from lightly.utils.scheduler import cosine_schedule
 from lightly.data import LightlyDataset
@@ -49,10 +52,11 @@ group = parser.add_argument_group('Miscellaneous parameters')
 group.add_argument('--epochs', type=int, default=40, metavar='N')
 group.add_argument('-b', '--batch-size', type=int, default=128, metavar='N')
 group.add_argument('--workers', type=int, default=4, metavar='N')
-group.add_argument('--inference', action='store_true', default=True)
 group.add_argument('--data-dir', default='../../../dataset/', type=str)
 group.add_argument('--out-dir', default='../../output/', type=str)
 group.add_argument('--verbose', action='store_true', default=False)
+group.add_argument("--dist-url", default="env://", type=str)
+group.add_argument("--world-size", default=1, type=int)
 
 
 
@@ -64,23 +68,27 @@ def _parse_args():
 
 
 def main():
-    print('-' * 30)
-
     args, args_text = _parse_args()
-
+    
     # logging
     out_dir = args.out_dir
     exp_name = '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S")])
     exp_dir = out_dir + exp_name + "/"
-    os.makedirs(exp_dir)
+    args.exp_dir = exp_dir
+    mkdir(exp_dir)
     with open(os.path.join(exp_dir, 'config.yaml'), 'w') as f:
         f.write(args_text)
 
+    # distributed 
+    init_distributed_mode(args)
+    print(args)
+
     # GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    print(f'Training on 1 device ({device}).')
+    print(f'\nTraining on {device}.')
 
-    # model
+
+    # backbone
     if args.backbone == 'resnet50':
         if args.use_trained:
             backbone = torch.load(args.model_dir, map_location=torch.device(device))
@@ -92,18 +100,28 @@ def main():
     else:
         backbone = resnet18()
 
+    # model
     model = BYOL(nn.Sequential(*list(backbone.children())[:-1]))
     model.to(device)
-
 
     with open(os.path.join(exp_dir, 'model_summary.txt'), 'w') as f:
         f.write(str(model))
         f.write('\n\n')
-        f.write(str(summary(model, input_size=(3, 160, 240), batch_dim=0)))
+        if args.verbose:
+            f.write(str(summary(model, input_size=(3, 160, 240), batch_dim=0)))
+    
+
+    if args.distributed:
+        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
+    model_without_ddp = model
+    if args.distributed:
+        model = DistributedDataParallel(model, device_ids=[args.gpu])
+        model_without_ddp = model.module
 
 
     # optimizer
-    optimizer = create_optimizer(model, args)
+    optimizer = create_optimizer(model_without_ddp, args)
 
     # scheduler
     if args.sched == 'cosine':
@@ -120,46 +138,53 @@ def main():
     # Dataset
     print("Loading dataset...")
     data_dir = args.data_dir
-    trans = trans = SimCLRTransform(input_size=(160,240), min_scale=0.2)
-    unlabeleddataset = UnlabeledDataset(root=os.path.join(data_dir, 'unlabeled'))
-    dataset = LightlyDataset.from_torch_dataset(unlabeleddataset, transform=trans)
+    trans = SimCLRTransform(input_size=(160,240), min_scale=0.2)
+    dataset = UnlabeledDataset(root=os.path.join(data_dir, 'unlabeled'))
+    dataset = LightlyDataset.from_torch_dataset(dataset, transform=trans)
+
+    if args.distributed:
+        train_sampler = distributed.DistributedSampler(dataset)
+    else:
+        train_sampler = RandomSampler(dataset)
+
     dataloader = DataLoader(
         dataset, 
         batch_size=args.batch_size, 
+        sampler=train_sampler,
         collate_fn=MultiViewCollate(),
-        shuffle=True, 
         drop_last=True, 
         num_workers=args.workers
     )
 
 
-    #loss function
+    # loss function
     criterion = NegativeCosineSimilarity()
 
     # train
-    print(f"Training {args.backbone} for {args.epochs} epochs ...")
+    print(f"Training {args.backbone} for {args.epochs} epochs ...\n")
     model.to(device)
     model.train()  
     losses = []
     best_loss = np.inf
 
-    #main loop
+    # main loop
     for epoch in range(args.epochs):
         start_time = time.time()
-        total_loss = 0
+        if args.distributed:
+            train_sampler.set_epoch(epoch)
+
+        total_loss = 0.0
         momentum_val = cosine_schedule(epoch, args.epochs, 0.996, 1)
 
         for (x0, x1), _, _ in dataloader:
-            update_momentum(model.backbone, model.backbone_momentum, m=momentum_val)
-            update_momentum(
-                model.projection_head, model.projection_head_momentum, m=momentum_val
-            )
+            update_momentum(model_without_ddp.backbone, model_without_ddp.backbone_momentum, m=momentum_val)
+            update_momentum(model_without_ddp.projection_head, model_without_ddp.projection_head_momentum, m=momentum_val)
             x0 = x0.to(device)
             x1 = x1.to(device)
             p0 = model(x0)
-            z0 = model.forward_momentum(x0)
+            z0 = model_without_ddp.forward_momentum(x0)
             p1 = model(x1)
-            z1 = model.forward_momentum(x1)
+            z1 = model_without_ddp.forward_momentum(x1)
             loss = 0.5 * (criterion(p0, z1) + criterion(p1, z0))
             total_loss += loss.detach()
             loss.backward()
@@ -170,19 +195,22 @@ def main():
             scheduler.step()
 
         avg_loss = total_loss / len(dataloader)
-        print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}],  Loss: {avg_loss:.3e},  Time:{time.time()-start_time:.0f}', end='')
+        print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}],  Loss: {avg_loss:.3e},  Time: {time.time()-start_time:.0f}s')
 
         #save best model
         if avg_loss < best_loss:
             best_loss = avg_loss
-            torch.save(model, exp_dir + "model_best.pth")
-            torch.save(backbone, exp_dir + "backbone-" + str(args.backbone) + ".pth")
-            print("  Best model saved, loss: ", best_loss.item())
-        print()
+            if dist.get_rank() == 0:
+                torch.save(model_without_ddp.state_dict(), exp_dir + str(args.backbone) + '_best.pth')
+
         losses.append(avg_loss)
         
-    print("Training finished")
+    print("Training completed.")
     print('-' * 30)
+
+    if dist.get_rank() == 0:
+        torch.save(model_without_ddp.state_dict(), exp_dir + str(args.backbone) + '-' + str(best_loss) + '.pth')
+    print(f'Best models saved, loss: {best_loss:.4e}\n')
 
     #write loss to csv
     with open('loss.csv', 'w', newline='\n') as csvfile:

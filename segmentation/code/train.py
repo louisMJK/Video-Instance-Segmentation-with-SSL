@@ -212,11 +212,11 @@ def train_model(
     jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49, average='micro')
 
     for epoch in range(args.epochs):
+        t1 = time.time()
         if args.distributed:
             train_sampler.set_epoch(epoch)
 
         for phase in ['train', 'val']:
-            t1 = time.time()
             if phase == 'train':
                 model.train()  
             else:

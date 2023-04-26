@@ -1,8 +1,5 @@
-from torch import nn
+import torch
 from torch.utils.data import Dataset
-from lightly.models.modules import BYOLPredictionHead, BYOLProjectionHead
-from lightly.models.utils import deactivate_requires_grad, update_momentum
-from lightly.utils.scheduler import cosine_schedule
 
 import os
 import copy
@@ -11,69 +8,91 @@ from PIL import Image, ImageFile
 
 
 class UnlabeledDataset(Dataset):
-    def __init__(self, root='../../dataset/unlabeled/', transform=None):
+    def __init__(self, root='../../dataset/train/', transform=None):
         self.root = root
         self.transform = transform
         self.vid_list = sorted(os.listdir(root))
-        # self.img_list = ['image_' + str(i) + '.png' for i in range(22)]
-        self.data_dir = root
-        self.image_list = []
-        for subdir in self.vid_list:
-            subdir_path = os.path.join(self.data_dir, subdir)
-            for file in os.listdir(subdir_path):
-                    self.image_list.append(os.path.join(subdir_path, file))
-                    
+        self.img_list = ['image_' + str(i) + '.png' for i in range(22)]
+    
     def __len__(self):
-        return len(self.image_list)
+        return len(self.vid_list) * 22
 
     def __getitem__(self, idx):
-        img_path = self.image_list[idx]
+        vid_idx = idx // 22
+        img_idx = idx % 22
+        # load image
+        img_path = os.path.join(self.root, self.vid_list[vid_idx], self.img_list[img_idx])
         img = Image.open(img_path).convert("RGB")
+        # transforms
         if self.transform is not None:
             img = self.transform(img)
         return img, 0
+
+
+def init_distributed_mode(args):
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        args.rank = int(os.environ["RANK"])
+        args.world_size = int(os.environ["WORLD_SIZE"])
+        args.gpu = int(os.environ["LOCAL_RANK"])
+    elif "SLURM_PROCID" in os.environ:
+        args.rank = int(os.environ["SLURM_PROCID"])
+        args.gpu = args.rank % torch.cuda.device_count()
+    elif hasattr(args, "rank"):
+        pass
+    else:
+        print("Not using distributed mode")
+        args.distributed = False
+        return
+
+    args.distributed = True
+
+    torch.cuda.set_device(args.gpu)
+    args.dist_backend = "nccl"
+    print(f"| distributed init (rank {args.rank}): {args.dist_url}", flush=True)
+    torch.distributed.init_process_group(
+        backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank
+    )
+    torch.distributed.barrier()
+    setup_for_distributed(args.rank == 0)
+
+
+def setup_for_distributed(is_master):
+    """
+    This function disables printing when not in master process
+    """
+    import builtins as __builtin__
+
+    builtin_print = __builtin__.print
+
+    def print(*args, **kwargs):
+        force = kwargs.pop("force", False)
+        if is_master or force:
+            builtin_print(*args, **kwargs)
+
+    __builtin__.print = print
+
+
+def mkdir(path):
+    try:
+        os.makedirs(path)
+    except OSError as e:
+        pass
+
+
+
+# shapes = ["cube", "sphere", "cylinder"]
+# materials = ["metal", "rubber"]
+# colors = ["gray", "red", "blue", "green", "brown", "cyan", "purple", "yellow"]
+
+# def get_id(the_object):
+#     color = the_object['color']
+#     material = the_object['material']
+#     shape = the_object['shape']
     
-
-
-class BYOL(nn.Module):
-    def __init__(self, backbone):
-        super().__init__()
-
-        self.backbone = backbone
-        self.projection_head = BYOLProjectionHead(2048, 4096, 256)
-        self.prediction_head = BYOLPredictionHead(256, 4096, 256)
-
-        self.backbone_momentum = copy.deepcopy(self.backbone)
-        self.projection_head_momentum = copy.deepcopy(self.projection_head)
-
-        deactivate_requires_grad(self.backbone_momentum)
-        deactivate_requires_grad(self.projection_head_momentum)
-
-    def forward(self, x):
-        y = self.backbone(x).flatten(start_dim=1)
-        z = self.projection_head(y)
-        p = self.prediction_head(z)
-        return p
-
-    def forward_momentum(self, x):
-        y = self.backbone_momentum(x).flatten(start_dim=1)
-        z = self.projection_head_momentum(y)
-        z = z.detach()
-        return z
+#     c_id = colors.index(color)
+#     m_id = materials.index(material)
+#     s_id = shapes.index(shape)
     
-shapes = ["cube", "sphere", "cylinder"]
-materials = ["metal", "rubber"]
-colors = ["gray", "red", "blue", "green", "brown", "cyan", "purple", "yellow"]
-
-def get_id(the_object):
-    color = the_object['color']
-    material = the_object['material']
-    shape = the_object['shape']
+#     obj_id = s_id * 16 + m_id * 8 + c_id + 1
     
-    c_id = colors.index(color)
-    m_id = materials.index(material)
-    s_id = shapes.index(shape)
-    
-    obj_id = s_id * 16 + m_id * 8 + c_id + 1
-    
-    return obj_id
+#     return obj_id
