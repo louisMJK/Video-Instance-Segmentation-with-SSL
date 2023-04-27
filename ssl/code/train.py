@@ -14,13 +14,13 @@ import yaml
 import argparse
 import pandas as pd
 
+from transforms import Transform
 from optimizer import create_optimizer
 from models import create_model
 from utils import UnlabeledDataset, mkdir, init_distributed_mode
 from lightly.data.multi_view_collate import MultiViewCollate
 from lightly.loss import NegativeCosineSimilarity
 from lightly.models.utils import update_momentum
-from lightly.transforms.simclr_transform import SimCLRTransform
 from lightly.utils.scheduler import cosine_schedule
 from lightly.data import LightlyDataset
 
@@ -120,7 +120,7 @@ def main():
     # Dataset
     print("Loading dataset...")
     data_dir = args.data_dir
-    trans = SimCLRTransform(input_size=(160,240), min_scale=0.2)
+    trans = Transform(input_size=(160,240), min_scale=0.7)
     dataset = UnlabeledDataset(root=os.path.join(data_dir, 'unlabeled'))
     dataset = LightlyDataset.from_torch_dataset(dataset, transform=trans)
 
@@ -186,7 +186,7 @@ def main():
             scheduler.step()
 
         avg_loss = total_loss / len(dataloader)
-        print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}],  Loss: {avg_loss:.3e},  Time: {time.time()-start_time:.0f}s')
+        print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}]   Loss: {avg_loss:.3e},  Time: {time.time()-start_time:.0f}s')
 
         #save best model
         if avg_loss < best_loss:
