@@ -12,11 +12,10 @@ import numpy as np
 from datetime import datetime
 import yaml
 import argparse
-import csv
+import pandas as pd
 
-from torchvision.models import resnet18, resnet50, vit_b_16
 from optimizer import create_optimizer
-from models import BYOL
+from models import create_model
 from utils import UnlabeledDataset, mkdir, init_distributed_mode
 from lightly.data.multi_view_collate import MultiViewCollate
 from lightly.loss import NegativeCosineSimilarity
@@ -26,18 +25,14 @@ from lightly.utils.scheduler import cosine_schedule
 from lightly.data import LightlyDataset
 
 
-DATA_MEAN = (0.485, 0.456, 0.406)
-DATA_STD = (0.229, 0.224, 0.225)
-
 
 parser = argparse.ArgumentParser(description='PyTorch Self-Supervised Learning')
 
 # Model parameters
 group = parser.add_argument_group('Model parameters')
 group.add_argument('--backbone', default='resnet50', type=str, metavar='BACKBONE')
-group.add_argument('--img-size', type=int, default=224)
 group.add_argument('--use-trained', action='store_true', default=False)
-group.add_argument('--model-dir', default='../../output/backbone-resnet50-0.8470/resnet50.pth', type=str)
+group.add_argument('--model-dir', default='../../output/backbone-resnet50-0.9041/byol_best.pth', type=str)
 
 # Optimizer & Scheduler parameters
 group = parser.add_argument_group('Optimizer parameters')
@@ -47,8 +42,8 @@ group.add_argument('--momentum', type=float, default=0.9, metavar='M')
 group.add_argument('--weight-decay', type=float, default=1e-6)
 group.add_argument('--lr-base', type=float, default=1e-2, metavar='LR')
  
-# Misc
-group = parser.add_argument_group('Miscellaneous parameters')
+# Training
+group = parser.add_argument_group('Training parameters')
 group.add_argument('--epochs', type=int, default=40, metavar='N')
 group.add_argument('-b', '--batch-size', type=int, default=128, metavar='N')
 group.add_argument('--workers', type=int, default=4, metavar='N')
@@ -69,39 +64,27 @@ def _parse_args():
 
 def main():
     args, args_text = _parse_args()
-    
-    # logging
     out_dir = args.out_dir
     exp_name = '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S")])
     exp_dir = out_dir + exp_name + "/"
     args.exp_dir = exp_dir
     mkdir(exp_dir)
-    with open(os.path.join(exp_dir, 'config.yaml'), 'w') as f:
-        f.write(args_text)
-
+    
     # distributed 
     init_distributed_mode(args)
     print(args)
+
+    # logging
+    with open(os.path.join(exp_dir, 'config.yaml'), 'w') as f:
+        f.write(args_text)
 
     # GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     print(f'\nTraining on {device}.')
 
 
-    # backbone
-    if args.backbone == 'resnet50':
-        if args.use_trained:
-            backbone = torch.load(args.model_dir, map_location=torch.device(device))
-            print(f'Backbone loaded from {args.model_dir}')
-        else:
-            backbone = resnet50()
-    elif args.backbone == 'vit_b_16':
-        backbone = vit_b_16()
-    else:
-        backbone = resnet18()
-
     # model
-    model = BYOL(nn.Sequential(*list(backbone.children())[:-1]))
+    model = create_model(args)
     model.to(device)
 
     with open(os.path.join(exp_dir, 'model_summary.txt'), 'w') as f:
@@ -110,7 +93,6 @@ def main():
         if args.verbose:
             f.write(str(summary(model, input_size=(3, 160, 240), batch_dim=0)))
     
-
     if args.distributed:
         model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
@@ -167,6 +149,15 @@ def main():
     losses = []
     best_loss = np.inf
 
+    # resume from trained model
+    if args.use_trained:
+        model_without_ddp.load_state_dict(
+            torch.load(args.model_dir, map_location='cpu'), 
+            strict=True
+        )   
+        print(f'BYOL with {args.backbone} backbone loaded from {args.model_dir}.\n')       
+
+
     # main loop
     for epoch in range(args.epochs):
         start_time = time.time()
@@ -186,7 +177,7 @@ def main():
             p1 = model(x1)
             z1 = model_without_ddp.forward_momentum(x1)
             loss = 0.5 * (criterion(p0, z1) + criterion(p1, z0))
-            total_loss += loss.detach()
+            total_loss += loss.item()
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -201,7 +192,8 @@ def main():
         if avg_loss < best_loss:
             best_loss = avg_loss
             if dist.get_rank() == 0:
-                torch.save(model_without_ddp.state_dict(), exp_dir + str(args.backbone) + '_best.pth')
+                torch.save(model_without_ddp.state_dict(), exp_dir + 'byol_best.pth')
+                torch.save(model_without_ddp.backbone.state_dict(), exp_dir + str(args.backbone) + '_best.pth')
 
         losses.append(avg_loss)
         
@@ -209,14 +201,14 @@ def main():
     print('-' * 30)
 
     if dist.get_rank() == 0:
-        torch.save(model_without_ddp.state_dict(), exp_dir + str(args.backbone) + '-' + str(best_loss) + '.pth')
+        torch.save(model_without_ddp.state_dict(), exp_dir + 'byol_' + str(best_loss) + '.pth')
     print(f'Best models saved, loss: {best_loss:.4e}\n')
 
-    #write loss to csv
-    with open('loss.csv', 'w', newline='\n') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        csvwriter.writerow('loss')
-        csvwriter.writerow(losses)
+    # log loss
+    data = np.array(losses)
+    df_log = pd.DataFrame(data.T, columns=['loss'])
+    df_log.to_csv(exp_dir + "log.csv", index=False)
+
 
 
 if __name__ == "__main__":

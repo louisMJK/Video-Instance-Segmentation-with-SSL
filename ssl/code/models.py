@@ -1,8 +1,20 @@
 from torch import nn
+from torchvision import models
 import copy
 from lightly.models.modules import BYOLPredictionHead, BYOLProjectionHead
 from lightly.models.utils import deactivate_requires_grad
 
+
+def create_model(args):
+    if args.backbone == 'resnet50':
+        backbone = models.resnet50()
+    else:
+        backbone = models.resnet18()
+    
+    model = BYOL(nn.Sequential(*list(backbone.children())[:-1]))
+
+    return model
+        
 
 class BYOL(nn.Module):
     def __init__(self, backbone):
