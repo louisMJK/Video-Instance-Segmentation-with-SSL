@@ -68,6 +68,7 @@ scp -rp greene-dtn:/scratch/yl10745/dl-video-instance-segmentation/ssl/code .
 
 scp -rp greene-dtn:/scratch/yb970/dl/frame_pred .
 scp -rp greene-dtn:/scratch/yb970/dl/SimVP .
+scp -rp greene-dtn:/scratch/yb970/dl/VIT_Pred .
 
 scp -rp greene-dtn:/scratch/yl10745/dl-video-instance-segmentation/segmentation/code .
 
