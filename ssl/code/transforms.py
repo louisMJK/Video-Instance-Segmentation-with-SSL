@@ -75,9 +75,9 @@ class SimCLRViewTransform:
         normalize: Union[None, dict] = IMAGENET_NORMALIZE,
     ):
         color_jitter = T.ColorJitter(
-            brightness=0.4,
-            contrast=0.4,
-            saturation=0.4,
+            brightness=0.6,
+            contrast=0.6,
+            saturation=0.6,
         )
 
         transform = [
@@ -85,7 +85,7 @@ class SimCLRViewTransform:
             random_rotation_transform(rr_prob=rr_prob, rr_degrees=rr_degrees),
             T.RandomHorizontalFlip(p=hf_prob),
             T.RandomVerticalFlip(p=vf_prob),
-            T.RandomApply([color_jitter], p=0.9),
+            T.RandomApply([color_jitter], p=0.7),
             T.RandomAdjustSharpness(sharpness_factor=5),
             T.GaussianBlur(kernel_size=(3, 9), sigma=(0.1, 2)),
             T.RandomGrayscale(p=0.1),
