@@ -195,7 +195,7 @@ def train_model(
     best_jac = 0.0
     losses = {'train': [], 'val': []}
     jaccard_indices = {'train': [], 'val': []}
-    jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49)
+    jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49, average='micro')
 
     for epoch in range(args.epochs):
         t1 = time.time()
