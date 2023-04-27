@@ -6,13 +6,16 @@ from torchvision.transforms import functional as F
 
 
 class SegmentationTrainTransform:
-    def __init__(self, hflip_prob=0.5, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
+    def __init__(self, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
         min_size = 240
         max_size = 300
 
-        trans = [RandomResize(min_size, max_size)]
-        if hflip_prob > 0:
-            trans.append(RandomHorizontalFlip(hflip_prob))
+        trans = [
+            RandomResize(min_size, max_size), 
+            RandomHorizontalFlip(0.5), 
+            RandomVerticalFlip(0.5),
+        ]
+
         trans.extend(
             [
                 RandomCrop(),
@@ -39,7 +42,6 @@ class SegmentationValTransform:
 
     def __call__(self, img, target):
         return self.transforms(img, target)
-
 
 
 def pad_if_smaller(img, size=160, fill=0):
@@ -87,6 +89,17 @@ class RandomHorizontalFlip:
         if random.random() < self.flip_prob:
             image = F.hflip(image)
             target = F.hflip(target)
+        return image, target
+
+
+class RandomVerticalFlip:
+    def __init__(self, flip_prob):
+        self.flip_prob = flip_prob
+
+    def __call__(self, image, target):
+        if random.random() < self.flip_prob:
+            image = F.vflip(image)
+            target = F.vflip(target)
         return image, target
 
 

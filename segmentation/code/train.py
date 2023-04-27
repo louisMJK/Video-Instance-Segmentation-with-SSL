@@ -27,7 +27,7 @@ parser = argparse.ArgumentParser(description='PyTorch Instance Segementation')
 group = parser.add_argument_group('Model parameters')
 group.add_argument('--model', default='fcn_resnet50', type=str)
 group.add_argument('--backbone', default='resnet50', type=str)
-group.add_argument('--backbone-dir', default='../../../ssl/output/backbone-resnet50-0.9041/resnet50_best.pth', type=str)
+group.add_argument('--backbone-dir', default='../../../ssl/output/backbone-resnet50-0.9668/resnet50_best.pth', type=str)
 group.add_argument('--freeze', action='store_true', default=False)
 
 # Optimizer & Scheduler parameters
@@ -195,7 +195,7 @@ def train_model(
     best_jac = 0.0
     losses = {'train': [], 'val': []}
     jaccard_indices = {'train': [], 'val': []}
-    jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49, average='micro')
+    jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49)
 
     for epoch in range(args.epochs):
         t1 = time.time()
@@ -232,7 +232,7 @@ def train_model(
                             scheduler.step()
 
                 running_loss += loss.item() * inputs.size(0)
-                running_indices += jaccard_idx * inputs.size(0)
+                running_indices += jaccard_idx * inputs.size(0) * args.world_size
 
             if phase == 'train':
                 scheduler.step()

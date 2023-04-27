@@ -19,6 +19,7 @@ def create_model(args):
     adapted_dict = OrderedDict({key_dict[k] : v for k, v in state_dict.items()})
 
     model.backbone.load_state_dict(adapted_dict, strict=True)
+    print(f'Backbone loaded from {args.backbone_dir}.')
 
     if args.freeze:
         for p in model.backbone.parameters():
