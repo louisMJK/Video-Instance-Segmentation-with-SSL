@@ -134,17 +134,17 @@ def main():
         model_without_ddp = model.module
     
 
-    params_to_optimize = [
-        {"params": [p for p in model_without_ddp.backbone.parameters() if p.requires_grad]},
-        {"params": [p for p in model_without_ddp.classifier.parameters() if p.requires_grad]},
-    ]
-    if True:
-        params = [p for p in model_without_ddp.aux_classifier.parameters() if p.requires_grad]
-        params_to_optimize.append({"params": params, "lr": args.lr_base * 10})
+    # params_to_optimize = [
+    #     {"params": [p for p in model_without_ddp.backbone.parameters() if p.requires_grad]},
+    #     {"params": [p for p in model_without_ddp.classifier.parameters() if p.requires_grad]},
+    # ]
+    # if True:
+    #     params = [p for p in model_without_ddp.aux_classifier.parameters() if p.requires_grad]
+    #     params_to_optimize.append({"params": params, "lr": args.lr_base * 10})
 
     # optimizer
     if args.optim == 'sgd':
-        optimizer = torch.optim.SGD(params_to_optimize, lr=args.lr_base, momentum=args.momentum, weight_decay=args.weight_decay)
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr_base, momentum=args.momentum, weight_decay=args.weight_decay)
     else:
         print('No optimizer selected !')
 
