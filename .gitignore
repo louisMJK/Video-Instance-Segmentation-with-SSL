@@ -14,5 +14,5 @@ data_voc/
 
 *.pth
 small_dataset/
-output/
+VIT_Pred/output/
 VIT_Pred/backbone/
