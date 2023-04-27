@@ -65,18 +65,22 @@ class TransformerBlock(nn.Module):
     
 
 class Predictor(nn.Module): #input shape (11, 2048, 5, 8)
-    def __init__(self, num_hiddens = 512, num_heads = 8, mlp_hiddens = 2048, dropout = 0.1, in_size = (11, 2048, 5, 8)):
+    def __init__(self, num_hiddens = 512, num_heads = 8, mlp_hiddens = 2048, dropout = 0.1, in_size = (11, 2048, 5, 8), num_layers = 3):
         super().__init__()
         self.num_hiddens = num_hiddens
         T_, C_, H_, W_ = in_size
-        self.transformer = nn.Sequential(
-            TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout),
-            TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout),
-            TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout),
-        )
+        # self.transformer = nn.Sequential(
+        #     TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout),
+        #     TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout),
+        #     TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout),
+        # )
+        self.transformer = nn.Sequential()
+        for i in range(num_layers):
+            self.transformer.add_module(f"{i}", TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout))
         self.linear1 = nn.Linear(C_, self.num_hiddens)
         self.linear2 = nn.Linear(self.num_hiddens, C_)
         self.linear3 = nn.Linear(T_*H_*W_, H_*W_)
+        self.relu = nn.ReLU()
         self.pos_embedding = nn.Parameter(0.02 * torch.randn(1, T_*H_*W_, num_hiddens))
 
 
@@ -93,7 +97,7 @@ class Predictor(nn.Module): #input shape (11, 2048, 5, 8)
 
         # B * 440 * 512 to B * 440 * 2048
         X = self.linear2(X)
-
+        X = self.relu(X)
         # B * 440 * 2048 to B * 2048 * 40
         X = X.permute(0,2,1)
         X = self.linear3(X)

@@ -48,6 +48,7 @@ group.add_argument('--data-dir', default='../Student_dataset/', type=str)
 group.add_argument('--out-dir', default='../../output/', type=str)
 group.add_argument('--backbone-dir', default='./backbone/resnet50_best.pth', type=str)
 group.add_argument('--verbose', action='store_true', default=False)
+group.add_argument('--num-blocks', type=int, default=3)
 # group.add_argument('--val-interval', type=int, default=2)
 # group.add_argument('--sample-interval', type=int, default=1)
 
@@ -116,7 +117,7 @@ def main():
         p.requires_grad = False
 
     # model
-    model = Predictor()
+    model = Predictor(num_layers = args.num_blocks)
     model.to(device)
 
 
