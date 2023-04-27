@@ -13,3 +13,5 @@ brett/output
 data_voc/
 
 *.pth
+small_dataset/
+output/
