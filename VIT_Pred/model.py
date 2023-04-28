@@ -65,7 +65,7 @@ class TransformerBlock(nn.Module):
     
 
 class Predictor(nn.Module): #input shape (11, 2048, 5, 8)
-    def __init__(self, num_hiddens = 512, num_heads = 8, mlp_hiddens = 2048, dropout = 0.1, in_size = (11, 2048, 5, 8), num_layers = 3):
+    def __init__(self, num_hiddens = 512, num_heads = 8, mlp_hiddens = 2048, dropout = 0.1, in_size = (11, 2048, 5, 8), num_layers = 2):
         super().__init__()
         self.num_hiddens = num_hiddens
         T_, C_, H_, W_ = in_size
@@ -82,7 +82,6 @@ class Predictor(nn.Module): #input shape (11, 2048, 5, 8)
         self.linear3 = nn.Linear(T_*H_*W_, H_*W_)
         self.relu = nn.ReLU()
         self.pos_embedding = nn.Parameter(0.02 * torch.randn(1, T_*H_*W_, num_hiddens))
-
 
     def forward(self, X):
         B, T, C, H, W = X.shape
