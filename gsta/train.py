@@ -183,7 +183,7 @@ def main():
     
     val_dataloader = DataLoader(
         val_dataset, 
-        batch_size=args.batch_size,
+        batch_size=1, #hard code to 1
         sampler=val_sampler,
         drop_last=True, 
         num_workers=args.workers)
@@ -228,15 +228,21 @@ def main():
         print("now validating...")
         model.eval()
         total_loss = 0
-        for x, target in val_dataloader:
-            x = x.to(device)
-            target = target.to(device)
-            output = model(x)
-            loss = criterion(output, target)
-            total_loss += loss.item()
+        total_ssim = 0
+        with torch.no_grad():
+            for x, target in val_dataloader:
+                x = x.to(device)
+                target = target.to(device)
+                output = model(x)
+                loss = criterion(output, target)
+                total_loss += loss.item()
+                output = output.squeeze(0)
+                target = target.squeeze(0)
+                ssim = structural_similarity_index_measure(output, target)
+                total_ssim += ssim
         avg_val_loss = total_loss/len(val_dataloader)
-        ssim = structural_similarity_index_measure(output, target)
-        print(f"epoch: {epoch:>02}, ssim: {ssim:.5f}, val_loss: {avg_val_loss:.5f}, validation_time:{time.time()-start_time:.2f}")
+        avg_ssim = total_ssim/len(val_dataloader)
+        print(f"epoch: {epoch:>02}, ssim: {avg_ssim:.5f}, val_loss: {avg_val_loss:.5f}, validation_time:{time.time()-start_time:.2f}")
         losses['val'].append(avg_val_loss)
 
         # save best model (only save in validation setting)

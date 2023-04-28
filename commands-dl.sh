@@ -18,6 +18,7 @@ srun --partition=n1s8-v100-1 --gres=gpu:1 --account csci_ga_2572_2023sp_18 \
     --pty /bin/bash
 source /etc/profile
 cd /scratch/yl10745/
+cd /scratch/yb970/
 
 
 # 2 GPU
@@ -26,7 +27,7 @@ srun --partition=n1s16-v100-2 --gres=gpu:2 --account csci_ga_2572_2023sp_18 \
     --pty /bin/bash
 
 # 4 GPU
-srun --partition=n1c24m128-v100-4 --gres=gpu:4 --account csci_ga_2572_2023sp_18 --time=00:10:00 --pty /bin/bash
+srun --partition=n1c24m128-v100-4 --gres=gpu:4 --account csci_ga_2572_2023sp_18 --time=03:00:00 --pty /bin/bash
 
 
 source /etc/profile
@@ -68,6 +69,7 @@ scp -rp greene-dtn:/scratch/yl10745/dl-video-instance-segmentation/ssl/code .
 
 scp -rp greene-dtn:/scratch/yb970/dl/frame_pred .
 scp -rp greene-dtn:/scratch/yb970/dl/SimVP .
+scp -rp greene-dtn:/scratch/yb970/dl/gsta .
 scp -rp greene-dtn:/scratch/yb970/dl/VIT_Pred .
 
 scp -rp greene-dtn:/scratch/yl10745/dl-video-instance-segmentation/segmentation/code .

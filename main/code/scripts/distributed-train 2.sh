@@ -1,8 +1,7 @@
 torchrun --nproc_per_node=4 ../train.py \
+    --use-fcn-head \
+    --freeze-backbone --freeze-fcn \
     --lr-base 1e-3 \
     --optim adam \
-    -b 4 --workers 16 \
+    -b 16 --workers 16 \
     --epochs 10 \
-    --hid-S 64\
-    --hid-T 512\
-    --data-dir '../../Dataset_Student/'
