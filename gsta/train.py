@@ -4,6 +4,7 @@ from torch.nn import MSELoss
 import torch.optim as optim
 from torch.utils.data import DataLoader, distributed, RandomSampler, SequentialSampler
 import torch.distributed as dist
+from torchmetrics.functional import structural_similarity_index_measure
 
 import os
 import time
@@ -234,7 +235,8 @@ def main():
             loss = criterion(output, target)
             total_loss += loss.item()
         avg_val_loss = total_loss/len(val_dataloader)
-        print(f"epoch: {epoch:>02}, val_loss: {avg_val_loss:.5f}, validation_time:{time.time()-start_time:.2f}")
+        ssim = structural_similarity_index_measure(output, target)
+        print(f"epoch: {epoch:>02}, ssim: {ssim:.5f}, val_loss: {avg_val_loss:.5f}, validation_time:{time.time()-start_time:.2f}")
         losses['val'].append(avg_val_loss)
 
         # save best model (only save in validation setting)

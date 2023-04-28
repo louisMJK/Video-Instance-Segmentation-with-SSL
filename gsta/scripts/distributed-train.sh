@@ -3,3 +3,6 @@ torchrun --nproc_per_node=4 ../train.py \
     --optim adam \
     -b 32 --workers 16 \
     --epochs 10 \
+    --hid-S 128\
+    --hid-T 1024\
+    --data-dir '../Student_Dataset'
