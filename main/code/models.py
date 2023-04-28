@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 from torchvision import models
 import numpy as np
 
@@ -8,24 +9,40 @@ def create_model(args):
 
     model = VideoInstanceSeg()
 
+    # load backbone
+    resnet = models.resnet50(replace_stride_with_dilation=[False, True, True])
+    backbone = nn.Sequential(*list(resnet.children())[:-2])
+    backbone.load_state_dict(torch.load(args.backbone_dir, map_location='cpu'), strict=True)
+    model.resnet_aux.load_state_dict(backbone[:-1].state_dict())
+    model.layer4.load_state_dict(backbone[-1].state_dict())
+    print(f'\nBackbone loaded from {args.backbone_dir}')
+
+    del backbone, resnet
+
+    # load predictors
+    if args.use_predictor:
+        model.predictor.load_state_dict(torch.load(args.predictor_dir, map_location='cpu'), strict=True)
+
+    # load FCN heads
+    if args.use_fcn_head:
+        model.classifier.load_state_dict(torch.load(args.fcn_dir + 'classifier.pth', map_location='cpu'), strict=True)
+        model.aux_classifier.load_state_dict(torch.load(args.fcn_dir + 'aux_classifier.pth', map_location='cpu'), strict=True)
+        print(f'FCN heads loaded from {args.fcn_dir}')
+
     if args.freeze_backbone:
-        for p in model.backbone.parameters():
+        for p in model.resnet_aux.parameters():
+            p.requires_grad = False
+        for p in model.layer4.parameters():
             p.requires_grad = False
     
     if args.freeze_predictor:
         for p in model.predictor.parameters():
             p.requires_grad = False
-        for p in model.fc.parameters():
-            p.requires_grad = False
     
     if args.freeze_fcn:
-        params = [
-            model.classifier.parameters(),
-            model.aux_classifier.parameters(),
-            model.conv_t_1.parameters(),
-            model.conv_t_2.parameters()
-        ]
-        for p in params:
+        for p in model.classifier.parameters():
+            p.requires_grad = False
+        for p in model.aux_classifier.parameters():
             p.requires_grad = False
 
     return model
@@ -35,37 +52,70 @@ def create_model(args):
 class VideoInstanceSeg(nn.Module):
     def __init__(self):
         super().__init__()
-        fcn_resnet = models.segmentation.fcn_resnet50(num_classes=49, aux_loss=True)
-        self.backbone = fcn_resnet.backbone
+        resnet = models.resnet50(replace_stride_with_dilation=[False, True, True])
+        self.resnet_aux = nn.Sequential(*list(resnet.children())[:-3])
+        self.layer4 = list(resnet.children())[-3]
         self.predictor = Predictor()
-        self.classifier = fcn_resnet.classifier
-        self.aux_classifier = fcn_resnet.aux_classifier
-        self.conv_t_1 = nn.ConvTranspose2d(49, 49, kernel_size=16, padding=4, stride=8)
-        self.conv_t_2 = nn.ConvTranspose2d(49, 49, kernel_size=16, padding=4, stride=8)
-        self.fc = nn.Sequential(
-            nn.Linear(11, 256), 
-            nn.ReLU(), 
-            nn.Linear(256, 1)
+        self.classifier = nn.Sequential(
+            nn.Conv2d(2048, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+            nn.BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.ReLU(),
+            nn.Dropout(p=0.1),
+            nn.Conv2d(512, 49, kernel_size=(1, 1), stride=(1, 1)),
+        )
+        self.aux_classifier = nn.Sequential(
+            nn.Conv2d(1024, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+            nn.BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.ReLU(),
+            nn.Dropout(p=0.1),
+            nn.Conv2d(256, 49, kernel_size=(1, 1), stride=(1, 1)),
         )
     
     def forward(self, x):
-        x = self.backbone(x)         
-        x1 = x['out']  # (B * 11, 2048, 20, 30)
-        x2 = x['aux']  # (B * 11, 1024, 20, 30)
+        # x shape: (B, 11, 3, H, W)
+        B = x.shape[0]
+        x = x.view(B * 11, 3, 160, 240)
 
-        BT, C, H, W = x1.shape
-        B = BT // 11
-        x1 = x1.reshape(B, 11, C, H, W)
-        x1 = self.predictor(x1)  # (B, 2048, 20, 30)
-        x2 = self.fc(x2.reshape(B, 11, 1024, H, W).permute(0,2,3,4,1)).squeeze(-1)  # (B, 1024, 20, 30)
+        x1 = self.resnet_aux(x) # (B * 11, 1024, 20, 30)
+        x2 = self.layer4(x1)    # (B * 11, 2048, 20, 30)
 
-        x1 = self.classifier(x1)      # (B, 49, 20, 30)
-        x2 = self.aux_classifier(x2)  # (B, 49, 20, 30)
+        x1 = x1.view(B, 11, 1024, 20, 30)
+        x2 = x2.view(B, 11, 2048, 20, 30)
 
-        y = {}
-        y['out'] = self.conv_t_1(x1)
-        y['aux'] = self.conv_t_2(x2)
-        return y
+        x1 = self.predictor(x1)
+        y = self.predictor(x2)
+        y += x2.mean(dim=1)
+
+        x1 = self.aux_classifier(x1)
+        y = self.classifier(y)
+
+        output = {}
+        output['out'] = F.interpolate(y, size=(160, 240), mode="bilinear", align_corners=False)
+        output['aux'] = F.interpolate(x1, size=(160, 240), mode="bilinear", align_corners=False)
+
+        return output
+
+
+
+class Predictor(nn.Module):
+    def __init__(self, num_hiddens = 256, num_heads = 4, mlp_hiddens = 1024, dropout = 0.1, in_size = (11, 3072, 20, 30), num_layers = 1):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(11, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+
+    def forward(self, x):
+        B, T, C, H, W = x.shape
+        # B * 11 * 2048 * 5 * 8 to B * 440 * 2048
+
+        x = x.permute(0,2,3,4,1)
+
+        x = self.fc(x).squeeze(-1)
+
+        return x
+
 
 
 class MultiHeadSelfAttention(nn.Module):
@@ -128,44 +178,3 @@ class TransformerBlock(nn.Module):
         X = X + self.attention(self.norm1(X))
         X = X + self.mlp(self.norm2(X))
         return X
-    
-class Predictor(nn.Module): #input shape (11, 2048, 5, 8)
-    def __init__(self, num_hiddens = 512, num_heads = 8, mlp_hiddens = 2048, dropout = 0.1, in_size = (11, 2048, 20, 30), num_layers = 2):
-        super().__init__()
-        self.num_hiddens = num_hiddens
-        T_, C_, H_, W_ = in_size
-        # self.transformer = nn.Sequential(
-        #     TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout),
-        #     TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout),
-        #     TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout),
-        # )
-        self.transformer = nn.Sequential()
-        for i in range(num_layers):
-            self.transformer.add_module(f"{i}", TransformerBlock(num_hiddens, num_heads, mlp_hiddens, dropout))
-        self.linear1 = nn.Linear(C_, self.num_hiddens)
-        self.linear2 = nn.Linear(self.num_hiddens, C_)
-        self.linear3 = nn.Linear(T_*H_*W_, H_*W_)
-        self.relu = nn.ReLU()
-        self.pos_embedding = nn.Parameter(0.02 * torch.randn(1, T_*H_*W_, num_hiddens))
-
-
-    def forward(self, X):
-        B, T, C, H, W = X.shape
-        # B * 11 * 2048 * 5 * 8 to B * 440 * 2048
-        X = X.permute(0,2,1,3,4).reshape(B, C, T*H*W).permute(0,2,1)
-
-        # B * 440 * 2048 to B * 440 * 512
-        X = self.linear1(X)
-        #add positional embedding
-        X = X + self.pos_embedding
-        X = self.transformer(X)
-
-        # B * 440 * 512 to B * 440 * 2048
-        X = self.linear2(X)
-        X = self.relu(X)
-        # B * 440 * 2048 to B * 2048 * 40
-        X = X.permute(0,2,1)
-        X = self.linear3(X)
-        X = X.reshape(B, C, H, W)
-        return X
-

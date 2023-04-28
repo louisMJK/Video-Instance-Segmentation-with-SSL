@@ -29,15 +29,19 @@ group = parser.add_argument_group('Model parameters')
 group.add_argument('--model', default='fcn_resnet50', type=str)
 group.add_argument('--backbone', default='resnet50', type=str)
 group.add_argument('--backbone-dir', default='../../../ssl/output/backbone-resnet50-0.9167/resnet50_best.pth', type=str)
+group.add_argument('--predictor-dir', default='', type=str)
+group.add_argument('--fcn-dir', default='../../../segmentation/output/fcn_resnet50_jaccard_0.9204/', type=str)
 group.add_argument('--freeze-backbone', action='store_true', default=False)
 group.add_argument('--freeze-predictor', action='store_true', default=False)
 group.add_argument('--freeze-fcn', action='store_true', default=False)
 group.add_argument('--use-trained', action='store_true', default=False)
+group.add_argument('--use-predictor', action='store_true', default=False)
+group.add_argument('--use-fcn-head', action='store_true', default=False)
 
 # Optimizer & Scheduler parameters
 group = parser.add_argument_group('Optimizer parameters')
-group.add_argument('--sched', default='poly', type=str, metavar='SCHEDULER')
-group.add_argument('--optim', default='sgd', type=str, metavar='OPTIMIZER') 
+group.add_argument('--sched', default='cosine', type=str, metavar='SCHEDULER')
+group.add_argument('--optim', default='adam', type=str, metavar='OPTIMIZER') 
 group.add_argument('--momentum', type=float, default=0.9, metavar='M')
 group.add_argument('--weight-decay', type=float, default=1e-5)
 group.add_argument('--lr-base', type=float, default=1e-2, metavar='LR')
@@ -47,7 +51,7 @@ group.add_argument('--lr-decay', type=float, default=0.9)
 # Train
 group = parser.add_argument_group('Training parameters')
 group.add_argument('--epochs', type=int, default=40, metavar='N')
-group.add_argument('-b', '--batch-size', type=int, default=128, metavar='N')
+group.add_argument('-b', '--batch-size', type=int, default=16, metavar='N')
 group.add_argument('--workers', type=int, default=4, metavar='N')
 group.add_argument('--data-dir', default='../../../dataset/', type=str)
 group.add_argument('--out-dir', default='../../output/', type=str)
@@ -138,7 +142,9 @@ def main():
 
     # optimizer
     if args.optim == 'sgd':
-        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr_base, momentum=args.momentum, weight_decay=args.weight_decay)
+        optimizer = torch.optim.SGD(model_without_ddp.parameters(), lr=args.lr_base, momentum=args.momentum, weight_decay=args.weight_decay)
+    elif args.optim == 'adam':
+        optimizer = torch.optim.Adam(model_without_ddp.parameters(), lr=args.lr_base, weight_decay=args.weight_decay)
     else:
         print('No optimizer selected !')
 
@@ -148,6 +154,8 @@ def main():
         scheduler = optim.lr_scheduler.PolynomialLR(optimizer, total_iters=iters_per_epoch * (args.epochs), power=0.9)
     elif args.sched == 'cosine':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
+    elif args.sched == 'exp':
+        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_decay)
     else:
         scheduler = None
     
@@ -155,21 +163,12 @@ def main():
     loss_fn = criterion
 
 
-    # resume from trained model
-    if args.use_trained:
-        model_without_ddp.load_state_dict(
-            torch.load(args.model_dir, map_location='cpu'), 
-            strict=True
-        )   
-        print(f'BYOL with {args.backbone} backbone loaded from {args.model_dir}.\n')
-
-
     # train
     print()
     print(f"Training {args.model} for {args.epochs} epochs ...")
 
     model_best, losses, ious = \
-        train_model(model, loss_fn, optimizer, scheduler, dataloaders, dataset_sizes, train_sampler, device, model_without_ddp, args)
+        train_model(model, loss_fn, optimizer, scheduler, dataloaders, dataset_sizes, train_sampler, device, args, model_without_ddp)
     
     print('-' * 30)
     
@@ -177,7 +176,7 @@ def main():
     plot_loss_and_acc(losses['train'], ious['train'], losses['val'], ious['val'], exp_dir + 'loss_acc.pdf')
     data = np.array([losses['train'], losses['val'], ious['train'], ious['val']])
     df_log = pd.DataFrame(data.T, columns=['loss_train', 'loss_val', 'jaccard_train', 'jaccard_val'])
-    df_log.to_csv(exp_dir + "log.csv", index=False)
+    df_log.to_csv(exp_dir + str(max(ious['val'])) + "log.csv", index=False)
 
 
 
@@ -190,12 +189,12 @@ def train_model(
         dataset_sizes, 
         train_sampler,
         device,
-        model_without_ddp,
         args,
+        model_without_ddp
 ):
     t_start = time.time()
     model.to(device)
-    best_model_wts = copy.deepcopy(model.state_dict())
+    best_model_wts = copy.deepcopy(model_without_ddp.state_dict())
     best_jac = 0.0
     losses = {'train': [], 'val': []}
     jaccard_indices = {'train': [], 'val': []}
@@ -214,7 +213,8 @@ def train_model(
                 model.eval()
 
             running_loss = 0.0
-            running_indices = 0
+            running_indices = 0.0
+            running_indices2 = 0.0
 
             # Iterate over data
             for inputs, targets in dataloaders[phase]:
@@ -229,6 +229,8 @@ def train_model(
                     out = outputs['out']
                     masks_pred = out.cpu().detach().numpy().argmax(1)
                     jaccard_idx = jaccard(targets.cpu().detach(), torch.Tensor(masks_pred)).item()
+                    jaccard_idx2 = jaccard2(targets.cpu().detach(), torch.Tensor(masks_pred)).item()
+
 
                     if phase == 'train':
                         loss.backward()
@@ -238,26 +240,32 @@ def train_model(
 
                 running_loss += loss.item() * inputs.size(0)
                 running_indices += jaccard_idx * inputs.size(0) * args.world_size
+                running_indices2 += jaccard_idx2 * args.world_size
 
             if phase == 'train':
                 scheduler.step()
 
             epoch_loss = running_loss / dataset_sizes[phase]
             epoch_jac = running_indices / dataset_sizes[phase]
+            epoch_jac2 = running_indices2 / len(dataloaders[phase])
             losses[phase].append(epoch_loss)
             jaccard_indices[phase].append(epoch_jac)
 
             if phase == 'train':
-                print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}], Train Loss: {epoch_loss:.3e},  Jaccard: {epoch_jac:.4f}', end='')
+                print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}], Train Loss: {epoch_loss:.3e}, Jaccard: {epoch_jac:.4f}, Jaccard2: {epoch_jac2:.4f}', end='')
             else:
-                print(f'   Val Loss: {epoch_loss:.3e},  Jaccard: {epoch_jac:.4f}   Time: {(time.time()-t1):.0f}s')
+                print(f'   Val Loss: {epoch_loss:.3e}, Jaccard: {epoch_jac:.4f}, Jaccard2: {epoch_jac2:.4f}   Time: {(time.time()-t1):.0f}s')
 
             # save best model
             if phase == 'val' and epoch_jac > best_jac:
                 best_jac = epoch_jac
-                best_model_wts = copy.deepcopy(model.state_dict())
+                best_model_wts = copy.deepcopy(model_without_ddp.state_dict())
                 if dist.get_rank() == 0:
-                    torch.save(model_without_ddp.state_dict(), args.exp_dir + str(args.model) + '_best.pth')
+                    torch.save(best_model_wts, args.exp_dir + 'model_best.pth')
+                    # torch.save(model_without_ddp.backbone.state_dict(), args.exp_dir + 'backbone.pth')
+                    torch.save(model_without_ddp.predictor.state_dict(), args.exp_dir + 'predictor.pth')
+                    torch.save(model_without_ddp.classifier.state_dict(), args.exp_dir + 'classifier.pth')
+                    torch.save(model_without_ddp.aux_classifier.state_dict(), args.exp_dir + 'aux_classifier.pth')
 
     time_elapsed = time.time() - t_start
     print(f'Training completed in {time_elapsed // 60:.0f} min {time_elapsed % 60:.0f} s')
