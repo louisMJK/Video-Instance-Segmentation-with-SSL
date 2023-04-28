@@ -1,7 +1,9 @@
 import torch
+import torch.nn as nn
 from torch.nn import MSELoss
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, distributed, RandomSampler, SequentialSampler
+import torch.distributed as dist
 
 import os
 import time
@@ -14,6 +16,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import random
 
+from utils import init_distributed_mode, mkdir
 from simvp_model import SimVP_Model
 from optimizer import create_optimizer
 from data import UnlabledtrainpredSim
@@ -47,8 +50,9 @@ group.add_argument('--data-dir', default='../../small_dataset/', type=str)
 group.add_argument('--out-dir', default='../../output/', type=str)
 group.add_argument('--verbose', action='store_true', default=False)
 group.add_argument('--best-model', default=None, type=str)
-# group.add_argument('--val-interval', type=int, default=2)
 group.add_argument('--sample-interval', type=int, default=1)
+group.add_argument("--dist-url", default="env://", type=str)
+group.add_argument("--world-size", default=1, type=int)
 
 #model parameters
 group = parser.add_argument_group('Model parameters')
@@ -94,28 +98,32 @@ def visualize(sample_imgs_unstack, target_imgs_unstack, output_img, outpath = No
     plt.tight_layout()
     plt.savefig(outpath)
 
+
 def main():
-    print('-' * 30)
-
     args, args_text = _parse_args()
-
-    # logging
     out_dir = args.out_dir
     exp_name = '-'.join([datetime.now().strftime("%Y%m%d-%H%M%S")])
     exp_dir = out_dir + exp_name + "/"
-    os.makedirs(exp_dir)
+    args.exp_dir = exp_dir
+    mkdir(exp_dir)
+    
+    # distributed 
+    init_distributed_mode(args)
+    print(args)
+
+    # logging
     with open(os.path.join(exp_dir, 'config.yaml'), 'w') as f:
         f.write(args_text)
 
     # GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    print(f'Training on 1 device ({device}).')
+    print(f'\nTraining on {device}.')
 
     # model
     
     #load pretrained model
     if args.best_model:
-        model = torch.load(args.best_model, map_location=device)
+        model = torch.load(args.best_model, map_location='cpu')
     else:
         model = SimVP_Model(in_shape=(11,3,160,240), hid_S=args.hid_S, hid_T=args.hid_T, N_T=args.N_T, N_S=args.N_S, drop_path=args.drop_path)
 
@@ -126,10 +134,18 @@ def main():
         f.write(str(model))
         f.write('\n\n')
         f.write(str(summary(model, input_size=(11, 3,160, 240), batch_dim=0)))
+    
+    if args.distributed:
+        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
+    model_without_ddp = model
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model_without_ddp = model.module
 
 
     # optimizer
-    optimizer = create_optimizer(model, args)
+    optimizer = create_optimizer(model_without_ddp, args)
 
     # scheduler
     if args.sched == 'cosine':
@@ -148,17 +164,26 @@ def main():
     print("Loading dataset...")
     data_dir = args.data_dir
     train_dataset = UnlabledtrainpredSim(root=os.path.join(data_dir, 'unlabeled'))
+    val_dataset = UnlabledtrainpredSim(root=os.path.join(data_dir, 'val'))
+
+    if args.distributed:
+        train_sampler = distributed.DistributedSampler(train_dataset)
+        val_sampler = distributed.DistributedSampler(val_dataset, shuffle=False)
+    else:
+        train_sampler = RandomSampler(train_dataset)
+        val_sampler = SequentialSampler(val_dataset)
+
     train_dataloader = DataLoader(
         train_dataset, 
         batch_size=args.batch_size,
-        shuffle=True, 
+        sampler=train_sampler,
         drop_last=True, 
         num_workers=args.workers)
-    val_dataset = UnlabledtrainpredSim(root=os.path.join(data_dir, 'val'))
+    
     val_dataloader = DataLoader(
         val_dataset, 
         batch_size=args.batch_size,
-        shuffle=True, 
+        sampler=val_sampler,
         drop_last=True, 
         num_workers=args.workers)
 
@@ -174,6 +199,9 @@ def main():
     losses = {'train': [], 'val': []}
     best_loss = 1e9
     for epoch in range(args.epochs):
+        if args.distributed:
+            train_sampler.set_epoch(epoch)
+
         start_time = time.time()
         total_loss = 0
 
@@ -209,12 +237,12 @@ def main():
         print(f"epoch: {epoch:>02}, val_loss: {avg_val_loss:.5f}, validation_time:{time.time()-start_time:.2f}")
         losses['val'].append(avg_val_loss)
 
-        #save best model (only save in validation setting)
+        # save best model (only save in validation setting)
         if avg_val_loss < best_loss:
             best_loss = avg_val_loss
-            torch.save(model, exp_dir + "model_best.pth")
-            best_model_wts = copy.deepcopy(model.state_dict())
-            print("Best model saved with loss: ", best_loss)
+            if dist.get_rank() == 0:
+                torch.save(model_without_ddp.state_dict(), exp_dir + "model_best.pth")
+                print("Best model saved with loss: ", best_loss)
 
         #sample visualize
         if epoch % args.sample_interval == 0:
@@ -236,8 +264,6 @@ def main():
             print("Sample image saved.")
         
         
-        
-        model.load_state_dict(best_model_wts)
         print('-' * 30)
     
     print("Training finished")
