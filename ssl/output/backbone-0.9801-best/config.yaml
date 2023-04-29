@@ -1,0 +1,16 @@
+backbone: resnet50
+batch_size: 64
+data_dir: ../../../dataset/
+dist_url: env://
+epochs: 20
+lr_base: 0.01
+model_dir: ../../output/backbone-resnet50-0.9668/byol_best.pth
+momentum: 0.9
+optim: lars
+out_dir: ../../output/
+sched: cosine
+use_trained: true
+verbose: false
+weight_decay: 1.0e-06
+workers: 16
+world_size: 1
