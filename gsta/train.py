@@ -5,6 +5,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, distributed, RandomSampler, SequentialSampler
 import torch.distributed as dist
 from torchmetrics.functional import structural_similarity_index_measure
+from torchvision import transforms
 
 import os
 import time
@@ -63,6 +64,23 @@ group.add_argument('--N-T', default=8, type=int, metavar='N_T')
 group.add_argument('--N-S', default=4, type=int, metavar='N_S')
 group.add_argument('--drop-path', default=0.1, type=float, metavar='drop_path')
 
+# class UnNormalize(object):
+#     def __init__(self, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
+#         self.mean = mean
+#         self.std = std
+
+#     def __call__(self, tensor):
+#         for t, m, s in zip(tensor, self.mean, self.std):
+#             t.mul_(s).add_(m)
+        #   transform = transforms.ToPILImage()
+#         return tensor
+transformtoPIL = transforms.ToPILImage()
+def unnormalize(img):
+    #unnormalize the image
+    for t, m, s in zip(img, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]):
+        t.mul_(s).add_(m)
+    img = transformtoPIL(img)
+    return img
 
 
 
@@ -87,6 +105,9 @@ def visualize(sample_imgs_unstack, target_imgs_unstack, output_img, outpath = No
     #visualize 11 sample images in the first row, 11 target images in the second row, and the 11 outputs of the model in the third row
     fig, axs = plt.subplots(3, 11, figsize=(20, 10))
     for i in range(11):
+        sample_imgs_unstack[i] = unnormalize(sample_imgs_unstack[i])
+        target_imgs_unstack[i] = unnormalize(target_imgs_unstack[i])
+        output_img[i] = unnormalize(output_img[i])
         axs[0, i].imshow(sample_imgs_unstack[i].permute(1, 2, 0))
         axs[1, i].imshow(target_imgs_unstack[i].permute(1, 2, 0))
         axs[2, i].imshow(output_img[i].permute(1, 2, 0))
