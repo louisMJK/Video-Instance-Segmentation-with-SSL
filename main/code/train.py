@@ -13,11 +13,11 @@ import pandas as pd
 from datetime import datetime
 import yaml
 import argparse
-import copy
 import matplotlib.pyplot as plt
 
-from utils import MaskDataset, criterion, init_distributed_mode, mkdir, MetricLogger
+from utils import criterion, init_distributed_mode, mkdir, MetricLogger
 from transforms import SegmentationTrainTransform, SegmentationValTransform
+from data import ImagesToMaskDataset
 from models.main_model import MainModel
 
 
@@ -87,8 +87,8 @@ def main():
     # Dataset
     print("Loading dataset...")
     data_dir = args.data_dir
-    dataset_train = MaskDataset(os.path.join(data_dir, 'train'), transform_train)
-    dataset_val = MaskDataset(os.path.join(data_dir, 'val'), transform_val)
+    dataset_train = ImagesToMaskDataset(os.path.join(data_dir, 'train'), transform_train)
+    dataset_val = ImagesToMaskDataset(os.path.join(data_dir, 'val'), transform_val)
     dataset_sizes = {'train': len(dataset_train), 'val': len(dataset_val)}
 
     if args.distributed:
@@ -131,7 +131,9 @@ def main():
         for p in model.fcn_resnet.backbone.parameters():
             p.requires_grad = False
     if args.freeze_fcn_head:
-        for p in [model.fcn_resnet.classifier.parameters(), model.fcn_resnet.aux_classifier.parameters()]:
+        for p in model.fcn_resnet.classifier.parameters():
+            p.requires_grad = False
+        for p in model.fcn_resnet.aux_classifier.parameters():
             p.requires_grad = False
 
     with open(os.path.join(exp_dir, 'model_summary.txt'), 'w') as f:
@@ -179,7 +181,7 @@ def main():
 
     # train
     print()
-    print(f"Training {args.model} for {args.epochs} epochs ...")
+    print(f"Training for {args.epochs} epochs ...")
 
     losses, ious = \
         train_model(model, loss_fn, optimizer, scheduler, dataloaders, dataset_sizes, train_sampler, device, args)

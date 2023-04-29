@@ -15,6 +15,7 @@ class MainModel(nn.Module):
 
     def forward(self, x):
         x = self.predictor(x)
+        x = x[:, -1, :, :, :]
         x = self.fcn_resnet(x)
         return x
 
