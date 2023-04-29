@@ -16,36 +16,28 @@ import argparse
 import copy
 import matplotlib.pyplot as plt
 
-from data import ImagesToMaskDataset
-from utils import criterion, init_distributed_mode, mkdir
-from models import create_model
+from utils import MaskDataset, criterion, init_distributed_mode, mkdir, MetricLogger
 from transforms import SegmentationTrainTransform, SegmentationValTransform
+from models.main_model import MainModel
 
 
 parser = argparse.ArgumentParser(description='PyTorch Instance Segementation')
 
 # Model parameters
 group = parser.add_argument_group('Model parameters')
-group.add_argument('--model', default='fcn_resnet50', type=str)
-group.add_argument('--backbone', default='resnet50', type=str)
-group.add_argument('--backbone-dir', default='../../../ssl/output/backbone-resnet50-0.9167/resnet50_best.pth', type=str)
 group.add_argument('--predictor-dir', default='', type=str)
-group.add_argument('--fcn-dir', default='../../../segmentation/output/fcn_resnet50_jaccard_0.9204/', type=str)
-group.add_argument('--freeze-backbone', action='store_true', default=False)
+group.add_argument('--fcn-dir', default='', type=str)
 group.add_argument('--freeze-predictor', action='store_true', default=False)
-group.add_argument('--freeze-fcn', action='store_true', default=False)
-group.add_argument('--use-trained', action='store_true', default=False)
-group.add_argument('--use-predictor', action='store_true', default=False)
-group.add_argument('--use-fcn-head', action='store_true', default=False)
+group.add_argument('--freeze-backbone', action='store_true', default=False)
+group.add_argument('--freeze-fcn-head', action='store_true', default=False)
 
 # Optimizer & Scheduler parameters
 group = parser.add_argument_group('Optimizer parameters')
 group.add_argument('--sched', default='cosine', type=str, metavar='SCHEDULER')
 group.add_argument('--optim', default='adam', type=str, metavar='OPTIMIZER') 
 group.add_argument('--momentum', type=float, default=0.9, metavar='M')
-group.add_argument('--weight-decay', type=float, default=1e-5)
-group.add_argument('--lr-base', type=float, default=1e-2, metavar='LR')
-group.add_argument('--step-size', type=int, default=2)
+group.add_argument('--weight-decay', type=float, default=2e-5)
+group.add_argument('--lr-base', type=float, default=1e-3, metavar='LR')
 group.add_argument('--lr-decay', type=float, default=0.9)
 
 # Train
@@ -95,8 +87,8 @@ def main():
     # Dataset
     print("Loading dataset...")
     data_dir = args.data_dir
-    dataset_train = ImagesToMaskDataset(os.path.join(data_dir, 'train'), transform_train)
-    dataset_val = ImagesToMaskDataset(os.path.join(data_dir, 'val'), transform_val)
+    dataset_train = MaskDataset(os.path.join(data_dir, 'train'), transform_train)
+    dataset_val = MaskDataset(os.path.join(data_dir, 'val'), transform_val)
     dataset_sizes = {'train': len(dataset_train), 'val': len(dataset_val)}
 
     if args.distributed:
@@ -112,7 +104,6 @@ def main():
         batch_size=args.batch_size,
         sampler=train_sampler,
         num_workers=args.workers,
-        # collate_fn=utils.collate_fn,
     )
     loader_val = DataLoader(
         dataset_val, 
@@ -124,13 +115,30 @@ def main():
 
 
     # model
-    model = create_model(args)
+    model = MainModel()
+    
+    # load trained weights
+    model.predictor.load_state_dict(torch.load(args.predictor_dir, map_location='cpu'), strict=True)
+    model.fcn_resnet.load_state_dict(torch.load(args.fcn_dir, map_location='cpu'), strict=True)
+
     model.to(device)
+
+    # freeze
+    if args.freeze_predictor:
+        for p in model.predictor.parameters():
+            p.requires_grad = False
+    if args.freeze_backbone:
+        for p in model.fcn_resnet.backbone.parameters():
+            p.requires_grad = False
+    if args.freeze_fcn_head:
+        for p in [model.fcn_resnet.classifier.parameters(), model.fcn_resnet.aux_classifier.parameters()]:
+            p.requires_grad = False
+
     with open(os.path.join(exp_dir, 'model_summary.txt'), 'w') as f:
         f.write(str(model))
         f.write('\n\n')
         if args.verbose:
-            f.write(str(summary(model, input_size=(11, 3, 160, 240))))
+            f.write(str(summary(model, input_size=(3, 160, 240), batch_dim=0)))
 
     if args.distributed:
         model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
@@ -139,12 +147,21 @@ def main():
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         model_without_ddp = model.module
+    
+    # params
+    params_to_optimize = [
+        {"params": [p for p in model_without_ddp.predictor.parameters() if p.requires_grad]},
+        {"params": [p for p in model_without_ddp.fcn_resnet.backbone.parameters() if p.requires_grad]},
+        {"params": [p for p in model_without_ddp.fcn_resnet.classifier.parameters() if p.requires_grad]},
+    ]
+    params = [p for p in model_without_ddp.fcn_resnet.aux_classifier.parameters() if p.requires_grad]
+    params_to_optimize.append({"params": params, "lr": args.lr_base * 5})
 
     # optimizer
     if args.optim == 'sgd':
-        optimizer = torch.optim.SGD(model_without_ddp.parameters(), lr=args.lr_base, momentum=args.momentum, weight_decay=args.weight_decay)
+        optimizer = torch.optim.SGD(params_to_optimize, lr=args.lr_base, momentum=args.momentum, weight_decay=args.weight_decay)
     elif args.optim == 'adam':
-        optimizer = torch.optim.Adam(model_without_ddp.parameters(), lr=args.lr_base, weight_decay=args.weight_decay)
+        optimizer = torch.optim.Adam(params_to_optimize, lr=args.lr_base, weight_decay=args.weight_decay)
     else:
         print('No optimizer selected !')
 
@@ -154,21 +171,18 @@ def main():
         scheduler = optim.lr_scheduler.PolynomialLR(optimizer, total_iters=iters_per_epoch * (args.epochs), power=0.9)
     elif args.sched == 'cosine':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
-    elif args.sched == 'exp':
-        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_decay)
     else:
         scheduler = None
     
     # loss function
     loss_fn = criterion
 
-
     # train
     print()
     print(f"Training {args.model} for {args.epochs} epochs ...")
 
-    model_best, losses, ious = \
-        train_model(model, loss_fn, optimizer, scheduler, dataloaders, dataset_sizes, train_sampler, device, args, model_without_ddp)
+    losses, ious = \
+        train_model(model, loss_fn, optimizer, scheduler, dataloaders, dataset_sizes, train_sampler, device, args)
     
     print('-' * 30)
     
@@ -176,7 +190,7 @@ def main():
     plot_loss_and_acc(losses['train'], ious['train'], losses['val'], ious['val'], exp_dir + 'loss_acc.pdf')
     data = np.array([losses['train'], losses['val'], ious['train'], ious['val']])
     df_log = pd.DataFrame(data.T, columns=['loss_train', 'loss_val', 'jaccard_train', 'jaccard_val'])
-    df_log.to_csv(exp_dir + str(max(ious['val'])) + "log.csv", index=False)
+    df_log.to_csv(exp_dir + "log.csv", index=False)
 
 
 
@@ -190,19 +204,23 @@ def train_model(
         train_sampler,
         device,
         args,
-        model_without_ddp
 ):
     t_start = time.time()
     model.to(device)
-    best_model_wts = copy.deepcopy(model_without_ddp.state_dict())
+
+    model_without_ddp = model
+    if args.distributed:
+        model_without_ddp = model.module
+
     best_jac = 0.0
     losses = {'train': [], 'val': []}
     jaccard_indices = {'train': [], 'val': []}
-    jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49, average='micro')
-    jaccard2 = torchmetrics.JaccardIndex(task="multiclass", num_classes=49)
+    jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49)
 
     for epoch in range(args.epochs):
         t1 = time.time()
+        metric_logger = MetricLogger(delimiter="  ")
+
         if args.distributed:
             train_sampler.set_epoch(epoch)
 
@@ -214,7 +232,6 @@ def train_model(
 
             running_loss = 0.0
             running_indices = 0.0
-            running_indices2 = 0.0
 
             # Iterate over data
             for inputs, targets in dataloaders[phase]:
@@ -229,8 +246,6 @@ def train_model(
                     out = outputs['out']
                     masks_pred = out.cpu().detach().numpy().argmax(1)
                     jaccard_idx = jaccard(targets.cpu().detach(), torch.Tensor(masks_pred)).item()
-                    jaccard_idx2 = jaccard2(targets.cpu().detach(), torch.Tensor(masks_pred)).item()
-
 
                     if phase == 'train':
                         loss.backward()
@@ -239,42 +254,37 @@ def train_model(
                             scheduler.step()
 
                 running_loss += loss.item() * inputs.size(0)
-                running_indices += jaccard_idx * inputs.size(0) * args.world_size
-                running_indices2 += jaccard_idx2 * args.world_size
+                running_indices += jaccard_idx
 
             if phase == 'train':
                 scheduler.step()
 
             epoch_loss = running_loss / dataset_sizes[phase]
-            epoch_jac = running_indices / dataset_sizes[phase]
-            epoch_jac2 = running_indices2 / len(dataloaders[phase])
-            losses[phase].append(epoch_loss)
-            jaccard_indices[phase].append(epoch_jac)
+            epoch_jac = running_indices / len(dataloaders[phase])
+
+            metric_logger.update(loss=epoch_loss, jac=epoch_jac, lr=optimizer.param_groups[0]["lr"])
+
+            loss_avg = metric_logger.meters['loss'].avg
+            jac_avg = metric_logger.meters['jac'].avg
+            losses[phase].append(loss_avg)
+            jaccard_indices[phase].append(jac_avg)
 
             if phase == 'train':
-                print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}], Train Loss: {epoch_loss:.3e}, Jaccard: {epoch_jac:.4f}, Jaccard2: {epoch_jac2:.4f}', end='')
+                print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}]   Train Loss: {loss_avg:.3e}, Jaccard: {jac_avg:.4f}', end='')
             else:
-                print(f'   Val Loss: {epoch_loss:.3e}, Jaccard: {epoch_jac:.4f}, Jaccard2: {epoch_jac2:.4f}   Time: {(time.time()-t1):.0f}s')
+                print(f'   Val Loss: {loss_avg:.3e}, Jaccard: {jac_avg:.4f}   Time: {(time.time()-t1):.0f}s')
 
             # save best model
-            if phase == 'val' and epoch_jac > best_jac:
-                best_jac = epoch_jac
-                best_model_wts = copy.deepcopy(model_without_ddp.state_dict())
+            if phase == 'val' and jac_avg > best_jac:
+                best_jac = jac_avg
                 if dist.get_rank() == 0:
-                    torch.save(best_model_wts, args.exp_dir + 'model_best.pth')
-                    # torch.save(model_without_ddp.backbone.state_dict(), args.exp_dir + 'backbone.pth')
-                    torch.save(model_without_ddp.predictor.state_dict(), args.exp_dir + 'predictor.pth')
-                    torch.save(model_without_ddp.classifier.state_dict(), args.exp_dir + 'classifier.pth')
-                    torch.save(model_without_ddp.aux_classifier.state_dict(), args.exp_dir + 'aux_classifier.pth')
+                    torch.save(model_without_ddp, args.exp_dir + 'model_best.pth')
 
     time_elapsed = time.time() - t_start
     print(f'Training completed in {time_elapsed // 60:.0f} min {time_elapsed % 60:.0f} s')
     print(f'Best Validation Jaccard: {best_jac:.4f}')
 
-    # load best model weights
-    model.load_state_dict(best_model_wts)
-
-    return model, losses, jaccard_indices
+    return losses, jaccard_indices
 
 
 
