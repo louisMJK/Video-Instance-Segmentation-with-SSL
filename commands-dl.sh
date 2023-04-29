@@ -27,7 +27,7 @@ srun --partition=n1s16-v100-2 --gres=gpu:2 --account csci_ga_2572_2023sp_18 \
     --pty /bin/bash
 
 # 4 GPU
-srun --partition=n1c24m128-v100-4 --gres=gpu:4 --account csci_ga_2572_2023sp_18 --time=08:00:00 --pty /bin/bash
+srun --partition=n1c24m128-v100-4 --gres=gpu:4 --account csci_ga_2572_2023sp_18 --time=01:00:00 --pty /bin/bash
 
 
 source /etc/profile
