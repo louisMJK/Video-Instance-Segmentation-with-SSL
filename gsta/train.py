@@ -34,15 +34,15 @@ group.add_argument('--height', default='160', type=int, metavar='HEIGHT')
 
 # Optimizer & Scheduler parameters
 group = parser.add_argument_group('Optimizer parameters')
-group.add_argument('--sched', default='cosine', type=str, metavar='SCHEDULER')
+group.add_argument('--sched', default='cyclic', type=str, metavar='SCHEDULER')
 group.add_argument('--optim', default='adam', type=str, metavar='OPTIMIZER')
 group.add_argument('--momentum', type=float, default=0.9, metavar='M')
 group.add_argument('--weight-decay', type=float, default=2e-5)
-group.add_argument('--lr-base', type=float, default=0.001, metavar='LR')
+group.add_argument('--lr-base', type=float, default=1e-4, metavar='LR')
 group.add_argument('--step-size', type=int, default=2)
 group.add_argument('--lr-decay', type=float, default=0.9)
-group.add_argument('--mode', type=str, default='triangular')
-group.add_argument('--epoch-size-up', type=int, default=5)
+group.add_argument('--mode', type=str, default='triangular2')
+group.add_argument('--epoch-size-up', type=int, default=10)
 
 # Misc
 group = parser.add_argument_group('Miscellaneous parameters')
@@ -270,6 +270,8 @@ def main():
             else:    
                 loss.backward()
                 optimizer.step()
+            if args.sched == 'cyclic':
+                scheduler.step()
             total_loss += loss.item()
         avg_train_loss = total_loss/len(train_dataloader)
         print(f"epoch: {epoch:>02}, training_loss: {avg_train_loss:.5f}, training_time:{time.time()-start_time:.2f}")
