@@ -1,9 +1,9 @@
 backbone: resnet50
-backbone_dir: ../../../ssl/output/backbone-resnet50-0.9041/resnet50_best.pth
+backbone_dir: ../../../ssl/output/backbone-resnet50-0.9668/resnet50_best.pth
 batch_size: 32
 data_dir: ../../../dataset/
 dist_url: env://
-epochs: 40
+epochs: 30
 freeze: true
 lr_base: 0.05
 lr_decay: 0.9

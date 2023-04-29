@@ -16,7 +16,7 @@ import argparse
 import copy
 import matplotlib.pyplot as plt
 
-from utils import MaskDataset, criterion, init_distributed_mode, mkdir
+from utils import MaskDataset, criterion, init_distributed_mode, mkdir, MetricLogger
 from models import create_model
 from transforms import SegmentationTrainTransform, SegmentationValTransform
 
@@ -27,7 +27,7 @@ parser = argparse.ArgumentParser(description='PyTorch Instance Segementation')
 group = parser.add_argument_group('Model parameters')
 group.add_argument('--model', default='fcn_resnet50', type=str)
 group.add_argument('--backbone', default='resnet50', type=str)
-group.add_argument('--backbone-dir', default='../../../ssl/output/backbone-resnet50-0.9668/resnet50_best.pth', type=str)
+group.add_argument('--backbone-dir', default='../../../ssl/output/backbone-resnet50-0.9167/resnet50_best.pth', type=str)
 group.add_argument('--freeze', action='store_true', default=False)
 
 # Optimizer & Scheduler parameters
@@ -36,7 +36,7 @@ group.add_argument('--sched', default='poly', type=str, metavar='SCHEDULER')
 group.add_argument('--optim', default='sgd', type=str, metavar='OPTIMIZER') 
 group.add_argument('--momentum', type=float, default=0.9, metavar='M')
 group.add_argument('--weight-decay', type=float, default=1e-4)
-group.add_argument('--lr-base', type=float, default=1e-2, metavar='LR')
+group.add_argument('--lr-base', type=float, default=1e-1, metavar='LR')
 group.add_argument('--step-size', type=int, default=2)
 group.add_argument('--lr-decay', type=float, default=0.9)
 
@@ -134,17 +134,19 @@ def main():
         model_without_ddp = model.module
     
 
-    # params_to_optimize = [
-    #     {"params": [p for p in model_without_ddp.backbone.parameters() if p.requires_grad]},
-    #     {"params": [p for p in model_without_ddp.classifier.parameters() if p.requires_grad]},
-    # ]
-    # if True:
-    #     params = [p for p in model_without_ddp.aux_classifier.parameters() if p.requires_grad]
-    #     params_to_optimize.append({"params": params, "lr": args.lr_base * 10})
+    params_to_optimize = [
+        {"params": [p for p in model_without_ddp.backbone.parameters() if p.requires_grad]},
+        {"params": [p for p in model_without_ddp.classifier.parameters() if p.requires_grad]},
+    ]
+    if True:
+        params = [p for p in model_without_ddp.aux_classifier.parameters() if p.requires_grad]
+        params_to_optimize.append({"params": params, "lr": args.lr_base * 10})
 
     # optimizer
     if args.optim == 'sgd':
-        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr_base, momentum=args.momentum, weight_decay=args.weight_decay)
+        optimizer = torch.optim.SGD(params_to_optimize, lr=args.lr_base, momentum=args.momentum, weight_decay=args.weight_decay)
+    elif args.optim == 'adam':
+        optimizer = torch.optim.Adam(params_to_optimize, lr=args.lr_base, weight_decay=args.weight_decay)
     else:
         print('No optimizer selected !')
 
@@ -164,8 +166,8 @@ def main():
     print()
     print(f"Training {args.model} for {args.epochs} epochs ...")
 
-    model_best, losses, ious = \
-        train_model(model, loss_fn, optimizer, scheduler, dataloaders, dataset_sizes, train_sampler, device, model_without_ddp, args)
+    losses, ious = \
+        train_model(model, loss_fn, optimizer, scheduler, dataloaders, dataset_sizes, train_sampler, device, args)
     
     print('-' * 30)
     
@@ -186,19 +188,25 @@ def train_model(
         dataset_sizes, 
         train_sampler,
         device,
-        model_without_ddp,
         args,
 ):
     t_start = time.time()
     model.to(device)
-    best_model_wts = copy.deepcopy(model.state_dict())
+
+    model_without_ddp = model
+    if args.distributed:
+        model_without_ddp = model.module
+
+    best_model_wts = copy.deepcopy(model_without_ddp.state_dict())
     best_jac = 0.0
     losses = {'train': [], 'val': []}
     jaccard_indices = {'train': [], 'val': []}
-    jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49, average='micro')
+    jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49)
 
     for epoch in range(args.epochs):
         t1 = time.time()
+        metric_logger = MetricLogger(delimiter="  ")
+
         if args.distributed:
             train_sampler.set_epoch(epoch)
 
@@ -209,7 +217,7 @@ def train_model(
                 model.eval()
 
             running_loss = 0.0
-            running_indices = 0
+            running_indices = 0.0
 
             # Iterate over data
             for inputs, targets in dataloaders[phase]:
@@ -232,36 +240,43 @@ def train_model(
                             scheduler.step()
 
                 running_loss += loss.item() * inputs.size(0)
-                running_indices += jaccard_idx * inputs.size(0) * args.world_size
+                running_indices += jaccard_idx
 
             if phase == 'train':
                 scheduler.step()
 
             epoch_loss = running_loss / dataset_sizes[phase]
-            epoch_jac = running_indices / dataset_sizes[phase]
-            losses[phase].append(epoch_loss)
-            jaccard_indices[phase].append(epoch_jac)
+            epoch_jac = running_indices / len(dataloaders[phase])
+
+            metric_logger.update(loss=epoch_loss, jac=epoch_jac, lr=optimizer.param_groups[0]["lr"])
+
+            loss_avg = metric_logger.meters['loss'].avg
+            jac_avg = metric_logger.meters['jac'].avg
+            losses[phase].append(loss_avg)
+            jaccard_indices[phase].append(jac_avg)
 
             if phase == 'train':
-                print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}], Train Loss: {epoch_loss:.3e},  Jaccard Idx: {epoch_jac:.4f}', end='')
+                print(f'Epoch [{epoch+1:4d}/{args.epochs:4d}]   Train Loss: {loss_avg:.3e}, Jaccard: {jac_avg:.4f}', end='')
             else:
-                print(f'   Val Loss: {epoch_loss:.3e},  Jaccard Idx: {epoch_jac:.4f}   Time: {(time.time()-t1):.0f}s')
+                print(f'   Val Loss: {loss_avg:.3e}, Jaccard: {jac_avg:.4f}   Time: {(time.time()-t1):.0f}s')
 
             # save best model
-            if phase == 'val' and epoch_jac > best_jac:
-                best_jac = epoch_jac
-                best_model_wts = copy.deepcopy(model.state_dict())
+            if phase == 'val' and jac_avg > best_jac:
+                best_jac = jac_avg
+                best_model_wts = copy.deepcopy(model_without_ddp.state_dict())
                 if dist.get_rank() == 0:
-                    torch.save(model_without_ddp.state_dict(), args.exp_dir + str(args.model) + '_best.pth')
+                    torch.save(best_model_wts, args.exp_dir + 'fcn_resnet50_best.pth')
+                    torch.save(model_without_ddp.classifier.state_dict(), args.exp_dir + 'classifier.pth')
+                    torch.save(model_without_ddp.aux_classifier.state_dict(), args.exp_dir + 'aux_classifier.pth')
 
     time_elapsed = time.time() - t_start
     print(f'Training completed in {time_elapsed // 60:.0f} min {time_elapsed % 60:.0f} s')
     print(f'Best Validation Jaccard: {best_jac:.4f}')
 
     # load best model weights
-    model.load_state_dict(best_model_wts)
+    model_without_ddp.load_state_dict(best_model_wts)
 
-    return model, losses, jaccard_indices
+    return losses, jaccard_indices
 
 
 
