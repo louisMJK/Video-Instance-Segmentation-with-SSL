@@ -141,15 +141,10 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     print(f'\nTraining on {device}.')
 
-    # model
-    
-    #load pretrained model
-    if args.best_model:
-        model = torch.load(args.best_model, map_location='cpu')
-    else:
-        model = SimVP_Model(in_shape=(11,3,160,240), hid_S=args.hid_S, hid_T=args.hid_T, N_T=args.N_T, N_S=args.N_S, drop_path=args.drop_path)
 
-    
+    # model
+    model = SimVP_Model(in_shape=(11,3,160,240), hid_S=args.hid_S, hid_T=args.hid_T, N_T=args.N_T, N_S=args.N_S, drop_path=args.drop_path)
+
     model.to(device)
 
     with open(os.path.join(exp_dir, 'model_summary.txt'), 'w') as f:
@@ -212,6 +207,15 @@ def main():
 
     #loss function
     criterion = MSELoss()
+
+    # resume from trained model
+    if args.best_model:
+        model_without_ddp.load_state_dict(
+            torch.load(args.best_model, map_location='cpu'), 
+            strict=True
+        )   
+        print(f'Model loaded from {args.best_model}.\n')     
+
 
     # train
     print("Starting Training")
