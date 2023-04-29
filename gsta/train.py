@@ -105,12 +105,12 @@ def visualize(sample_imgs_unstack, target_imgs_unstack, output_img, outpath = No
     #visualize 11 sample images in the first row, 11 target images in the second row, and the 11 outputs of the model in the third row
     fig, axs = plt.subplots(3, 11, figsize=(20, 10))
     for i in range(11):
-        sample_imgs_unstack[i] = unnormalize(sample_imgs_unstack[i])
-        target_imgs_unstack[i] = unnormalize(target_imgs_unstack[i])
-        output_img[i] = unnormalize(output_img[i])
-        axs[0, i].imshow(sample_imgs_unstack[i].permute(1, 2, 0))
-        axs[1, i].imshow(target_imgs_unstack[i].permute(1, 2, 0))
-        axs[2, i].imshow(output_img[i].permute(1, 2, 0))
+        sample_imgs_unnormalized = unnormalize(sample_imgs_unstack[i])
+        target_imgs_unnormalized = unnormalize(target_imgs_unstack[i])
+        output_img_unnormalized = unnormalize(output_img[i])
+        axs[0, i].imshow(sample_imgs_unnormalized)
+        axs[1, i].imshow(target_imgs_unnormalized)
+        axs[2, i].imshow(output_img_unnormalized)
         axs[0, i].set_title(f"input:{i}")
         axs[1, i].set_title(f"target:{i}")
         axs[2, i].set_title(f"output:{i}")
@@ -199,7 +199,7 @@ def main():
     
     val_dataloader = DataLoader(
         val_dataset, 
-        batch_size=1, #hard code to 1
+        batch_size=16, #hard code to 1
         sampler=val_sampler,
         drop_last=True, 
         num_workers=args.workers)
@@ -261,8 +261,8 @@ def main():
                 output = model(x)
                 loss = criterion(output, target)
                 total_loss += loss.item()
-                output = output.squeeze(0)
-                target = target.squeeze(0)
+                output = output.flatten(0,1)
+                target = target.flatten(0,1)
                 ssim = structural_similarity_index_measure(output, target)
                 total_ssim += ssim
         avg_val_loss = total_loss/len(val_dataloader)

@@ -5,4 +5,5 @@ torchrun --nproc_per_node=4 ../train.py \
     --epochs 10 \
     --hid-S 64\
     --hid-T 512\
-    --data-dir '../../Dataset_Student/'
+    --data-dir '../../Dataset_Student/'\
+    --best-model 'best_model.pth'
