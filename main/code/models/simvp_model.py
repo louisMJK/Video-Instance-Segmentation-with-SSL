@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from modules import ConvSC, GASubBlock
+from .modules import ConvSC, GASubBlock
 
 class SimVP_Model(nn.Module):
     r"""SimVP Model
