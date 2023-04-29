@@ -77,15 +77,13 @@ def main():
 
     # GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    print(f'\nTraining on {device}.')
-
+    print(f'\nTraining on {device}.\n')
 
     # Data augmentation
     transform_train = SegmentationTrainTransform()
     transform_val = SegmentationValTransform()
 
     # Dataset
-    print("Loading dataset...")
     data_dir = args.data_dir
     dataset_train = ImagesToMaskDataset(os.path.join(data_dir, 'train'), transform_train)
     dataset_val = ImagesToMaskDataset(os.path.join(data_dir, 'val'), transform_val)
@@ -127,14 +125,17 @@ def main():
     if args.freeze_predictor:
         for p in model.predictor.parameters():
             p.requires_grad = False
+        print('Predictor freezed.')
     if args.freeze_backbone:
         for p in model.fcn_resnet.backbone.parameters():
             p.requires_grad = False
+        print('Backbone freezed.')
     if args.freeze_fcn_head:
         for p in model.fcn_resnet.classifier.parameters():
             p.requires_grad = False
         for p in model.fcn_resnet.aux_classifier.parameters():
             p.requires_grad = False
+        print('FCN head freezed.')
 
     with open(os.path.join(exp_dir, 'model_summary.txt'), 'w') as f:
         f.write(str(model))
@@ -180,8 +181,7 @@ def main():
     loss_fn = criterion
 
     # train
-    print()
-    print(f"Training for {args.epochs} epochs ...")
+    print(f"Training for {args.epochs} epochs ...\n")
 
     losses, ious = \
         train_model(model, loss_fn, optimizer, scheduler, dataloaders, dataset_sizes, train_sampler, device, args)
@@ -233,7 +233,8 @@ def train_model(
                 model.eval()
 
             running_loss = 0.0
-            running_indices = 0.0
+            masks_pred = np.zeros((0, 160, 240))
+            masks = np.zeros((0, 160, 240))
 
             # Iterate over data
             for inputs, targets in dataloaders[phase]:
@@ -244,27 +245,26 @@ def train_model(
                 with torch.set_grad_enabled(phase=='train'):
                     outputs = model(inputs)
                     loss = criterion(outputs, targets.long())
-                    # IoU
-                    out = outputs['out']
-                    masks_pred = out.cpu().detach().numpy().argmax(1)
-                    jaccard_idx = jaccard(targets.cpu().detach(), torch.Tensor(masks_pred)).item()
-
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()
                         if args.sched == 'poly':
                             scheduler.step()
-
-                running_loss += loss.item() * inputs.size(0)
-                running_indices += jaccard_idx
+                
+                with torch.no_grad():
+                    out = outputs['out']
+                    masks_batch = out.cpu().detach().numpy().argmax(1)
+                    masks_pred = np.concatenate([masks_pred, masks_batch], axis=0)
+                    masks = np.concatenate([masks, targets.cpu().detach().numpy()], axis=0)
+                    running_loss += loss.item() * inputs.size(0)
 
             if phase == 'train':
                 scheduler.step()
 
             epoch_loss = running_loss / dataset_sizes[phase]
-            epoch_jac = running_indices / len(dataloaders[phase])
+            jac = jaccard(torch.Tensor(masks_pred), torch.Tensor(masks))
 
-            metric_logger.update(loss=epoch_loss, jac=epoch_jac, lr=optimizer.param_groups[0]["lr"])
+            metric_logger.update(loss=epoch_loss, jac=jac, lr=optimizer.param_groups[0]["lr"])
 
             loss_avg = metric_logger.meters['loss'].avg
             jac_avg = metric_logger.meters['jac'].avg
