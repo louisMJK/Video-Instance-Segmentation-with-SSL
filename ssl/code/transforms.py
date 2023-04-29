@@ -75,20 +75,19 @@ class SimCLRViewTransform:
         normalize: Union[None, dict] = IMAGENET_NORMALIZE,
     ):
         color_jitter = T.ColorJitter(
-            brightness=0.6,
-            contrast=0.6,
-            saturation=0.6,
+            brightness=0.8,
+            contrast=0.8,
+            saturation=0.8,
         )
 
         transform = [
             T.RandomResizedCrop(size=input_size, scale=(min_scale, 1.0)),
-            random_rotation_transform(rr_prob=rr_prob, rr_degrees=rr_degrees),
+            random_rotation_transform(rr_prob=0.2, rr_degrees=rr_degrees),
             T.RandomHorizontalFlip(p=hf_prob),
-            T.RandomVerticalFlip(p=vf_prob),
-            T.RandomApply([color_jitter], p=0.7),
-            T.RandomAdjustSharpness(sharpness_factor=5),
-            T.GaussianBlur(kernel_size=(3, 9), sigma=(0.1, 2)),
-            T.RandomGrayscale(p=0.1),
+            T.RandomVerticalFlip(p=0.3),
+            T.RandomApply([color_jitter], p=0.5),
+            T.GaussianBlur(kernel_size=(3, 11), sigma=(0.3, 2.5)),
+            T.RandomGrayscale(p=0.2),
             T.ToTensor(),
         ]
         if normalize:
@@ -96,15 +95,5 @@ class SimCLRViewTransform:
         self.transform = T.Compose(transform)
 
     def __call__(self, image: Union[Tensor, Image]) -> Tensor:
-        """
-        Applies the transforms to the input image.
-
-        Args:
-            image:
-                The input image to apply the transforms to.
-
-        Returns:
-            The transformed image.
-
-        """
         return self.transform(image)
+

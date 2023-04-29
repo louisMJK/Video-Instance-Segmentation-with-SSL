@@ -32,7 +32,7 @@ parser = argparse.ArgumentParser(description='PyTorch Self-Supervised Learning')
 group = parser.add_argument_group('Model parameters')
 group.add_argument('--backbone', default='resnet50', type=str, metavar='BACKBONE')
 group.add_argument('--use-trained', action='store_true', default=False)
-group.add_argument('--model-dir', default='../../output/backbone-resnet50-0.9041/byol_best.pth', type=str)
+group.add_argument('--model-dir', default='', type=str)
 
 # Optimizer & Scheduler parameters
 group = parser.add_argument_group('Optimizer parameters')
@@ -120,7 +120,7 @@ def main():
     # Dataset
     print("Loading dataset...")
     data_dir = args.data_dir
-    trans = Transform(input_size=(160,240), min_scale=0.7)
+    trans = Transform(input_size=(160,240), min_scale=0.8)
     dataset = UnlabeledDataset(root=os.path.join(data_dir, 'unlabeled'))
     dataset = LightlyDataset.from_torch_dataset(dataset, transform=trans)
 
