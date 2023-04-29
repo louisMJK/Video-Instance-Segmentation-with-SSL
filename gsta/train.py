@@ -199,7 +199,7 @@ def main():
     
     val_dataloader = DataLoader(
         val_dataset, 
-        batch_size=16, #hard code to 1
+        batch_size=args.batch_size, #hard code to 1
         sampler=val_sampler,
         drop_last=True, 
         num_workers=args.workers)
@@ -263,7 +263,7 @@ def main():
                 total_loss += loss.item()
                 output = output.flatten(0,1)
                 target = target.flatten(0,1)
-                ssim = structural_similarity_index_measure(output, target)
+                ssim = structural_similarity_index_measure(output, target).item()
                 total_ssim += ssim
         avg_val_loss = total_loss/len(val_dataloader)
         avg_ssim = total_ssim/len(val_dataloader)
