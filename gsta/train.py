@@ -55,6 +55,7 @@ group.add_argument('--best-model', default=None, type=str)
 group.add_argument('--sample-interval', type=int, default=1)
 group.add_argument("--dist-url", default="env://", type=str)
 group.add_argument("--world-size", default=1, type=int)
+group.add_argument('--amp', action='store_true', default=False)
 
 #model parameters
 group = parser.add_argument_group('Model parameters')
@@ -163,6 +164,8 @@ def main():
 
     # optimizer
     optimizer = create_optimizer(model_without_ddp, args)
+        #scaler
+    scaler = torch.cuda.amp.GradScaler() if args.amp else None
 
     # scheduler
     if args.sched == 'cosine':
@@ -237,11 +240,19 @@ def main():
         for x, target in train_dataloader:
             x = x.to(device)
             target = target.to(device)
-            output = model(x)
-            loss = criterion(output, target)
+            with torch.cuda.amp.autocast(enabled=scaler is not None):
+                output = model(x)
+                loss = criterion(output, target)
+            #output = model(x)
+            #loss = criterion(output, target)
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            if scaler is not None:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:    
+                loss.backward()
+                optimizer.step()
             total_loss += loss.item()
         avg_train_loss = total_loss/len(train_dataloader)
         print(f"epoch: {epoch:>02}, training_loss: {avg_train_loss:.5f}, training_time:{time.time()-start_time:.2f}")
@@ -315,4 +326,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
