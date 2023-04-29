@@ -41,6 +41,8 @@ group.add_argument('--weight-decay', type=float, default=2e-5)
 group.add_argument('--lr-base', type=float, default=0.001, metavar='LR')
 group.add_argument('--step-size', type=int, default=2)
 group.add_argument('--lr-decay', type=float, default=0.9)
+group.add_argument('--mode', type=str, default='triangular')
+group.add_argument('--epoch-size-up', type=int, default=5)
 
 # Misc
 group = parser.add_argument_group('Miscellaneous parameters')
@@ -167,18 +169,6 @@ def main():
         #scaler
     scaler = torch.cuda.amp.GradScaler() if args.amp else None
 
-    # scheduler
-    if args.sched == 'cosine':
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
-    elif args.sched == 'exp':
-        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_decay, verbose=args.verbose)
-    elif args.sched == 'step':
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, 
-                                              gamma=args.lr_decay, verbose=args.verbose)
-    else:
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.lr_decay)
-
-
 
     # Dataset
     print("Loading dataset...")
@@ -206,6 +196,33 @@ def main():
         sampler=val_sampler,
         drop_last=True, 
         num_workers=args.workers)
+    dataset_size = len(train_dataset)
+
+
+    # scheduler
+    if args.sched == 'cosine':
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
+    elif args.sched == 'exp':
+        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_decay, verbose=args.verbose)
+    elif args.sched == 'step':
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, 
+                                              gamma=args.lr_decay, verbose=args.verbose)
+    elif args.sched == 'cyclic':
+        scheduler = optim.lr_scheduler.CyclicLR(
+            optimizer, 
+            base_lr=args.lr_base / 10, 
+            max_lr=args.lr_base,
+            step_size_up=int(args.epoch_size_up * dataset_size / args.batch_size),
+            mode=args.mode,
+            cycle_momentum=(not (args.optim=='adam')),
+        )
+    else:
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.lr_decay)
+        
+
+
+
+    
 
 
     #loss function
