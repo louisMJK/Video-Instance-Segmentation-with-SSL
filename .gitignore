@@ -6,6 +6,7 @@ __pycache__
 dataset/train
 dataset/unlabeled
 dataset/val
+dataset/hidden
 
 brett/output
 ./output/
