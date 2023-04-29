@@ -343,7 +343,7 @@ def main():
     print('-' * 30)
 
     #write loss to csv
-    plot_loss_and_acc(losses['train'], losses['val'], exp_dir + 'loss.pdf')
+    plot_loss_and_acc(losses['train'], losses['val'], losses['val_ssim'], exp_dir + 'loss.pdf')
     data = np.array([losses['train'], losses['val'], losses['val_ssim']])
     df_log = pd.DataFrame(data.T, columns=['loss_train', 'loss_val', 'ssim_val'])
     df_log.to_csv(exp_dir + 'loss.csv', index=False)
