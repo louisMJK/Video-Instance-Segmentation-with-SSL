@@ -27,7 +27,7 @@ srun --partition=n1s16-v100-2 --gres=gpu:2 --account csci_ga_2572_2023sp_18 \
     --pty /bin/bash
 
 # 4 GPU
-srun --partition=n1c24m128-v100-4 --gres=gpu:4 --account csci_ga_2572_2023sp_18 --time=03:00:00 --pty /bin/bash
+srun --partition=n1c24m128-v100-4 --gres=gpu:4 --account csci_ga_2572_2023sp_18 --time=08:00:00 --pty /bin/bash
 
 
 source /etc/profile
@@ -79,7 +79,7 @@ scp -rp greene-dtn:/scratch/yl10745/dl-video-instance-segmentation/segmentation/
 scp -rp ./output/  greene-dtn:/scratch/yl10745/dl-video-instance-segmentation/ssl/output  
 
 
-scp -rp ./output/ greene-dtn:/scratch/yb970/dl/output  
+scp -rp ./output/ greene-dtn:/scratch/yb970/dl/output/  
 
 # unzip -o dataset.zip -x '**/.*' -x '**/__MACOSX'
 
