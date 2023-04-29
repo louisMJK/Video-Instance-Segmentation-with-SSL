@@ -93,16 +93,24 @@ def _parse_args():
     return args, args_text
 
 
-def plot_loss_and_acc(train_losses, val_losses, out_pth="model.pth"):
-    fig, axs = plt.subplots(1, 1, figsize=(16, 6))
-    axs.plot(train_losses)
-    axs.plot(val_losses)
-    axs.set_yscale('log')
-    axs.grid()
-    axs.set_xlabel('Epoch')
-    axs.set_ylabel('Loss')
-    axs.legend(["Train loss", "Val loss"])
+def plot_loss_and_acc(train_losses, val_losses, ssim, out_pth="model.pth"):
+    fig, axs = plt.subplots(1, 2, figsize=(16, 6))
+    axs[0].plot(train_losses)
+    axs[0].plot(val_losses)
+    axs[0].set_yscale('log')
+    axs[0].grid()
+    axs[0].set_xlabel('Epoch')
+    axs[0].set_ylabel('Loss')
+    axs[0].legend(["Train loss", "Val loss"])
+    axs[1].plot(ssim)
+    axs[1].grid()
+    axs[1].set_xlabel('Epoch')
+    axs[1].set_ylabel('SSIM')
+    axs[1].legend(["Val_SSIM"])
+    axs[1].set_ylim([0, 1.0])
+    
     fig.savefig(out_pth)
+    plt.close(fig)
 
 def visualize(sample_imgs_unstack, target_imgs_unstack, output_img, outpath = None):
     #visualize 11 sample images in the first row, 11 target images in the second row, and the 11 outputs of the model in the third row
@@ -122,6 +130,7 @@ def visualize(sample_imgs_unstack, target_imgs_unstack, output_img, outpath = No
         axs[2, i].axis('off')
     plt.tight_layout()
     plt.savefig(outpath)
+    plt.close(fig)
 
 
 def main():
@@ -242,7 +251,7 @@ def main():
     print(f"Training for {args.epochs} epochs ...")
 
     #main loop
-    losses = {'train': [], 'val': []}
+    losses = {'train': [], 'val': [], 'val_ssim':[]}
     best_loss = 1e9
     for epoch in range(args.epochs):
         if args.distributed:
@@ -299,6 +308,7 @@ def main():
         avg_ssim = total_ssim/len(val_dataloader)
         print(f"epoch: {epoch:>02}, ssim: {avg_ssim:.5f}, val_loss: {avg_val_loss:.5f}, validation_time:{time.time()-start_time:.2f}")
         losses['val'].append(avg_val_loss)
+        losses['val_ssim'].append(avg_ssim)
 
         # save best model (only save in validation setting)
         if avg_val_loss < best_loss:
@@ -334,8 +344,8 @@ def main():
 
     #write loss to csv
     plot_loss_and_acc(losses['train'], losses['val'], exp_dir + 'loss.pdf')
-    data = np.array([losses['train'], losses['val']])
-    df_log = pd.DataFrame(data.T, columns=['loss_train', 'loss_val'])
+    data = np.array([losses['train'], losses['val'], losses['val_ssim']])
+    df_log = pd.DataFrame(data.T, columns=['loss_train', 'loss_val', 'ssim_val'])
     df_log.to_csv(exp_dir + 'loss.csv', index=False)
                     
 
