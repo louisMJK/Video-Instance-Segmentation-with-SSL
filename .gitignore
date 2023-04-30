@@ -17,3 +17,5 @@ data_voc/
 small_dataset/
 VIT_Pred/output/
 VIT_Pred/backbone/
+
+gsta/inferenced_22_frame/
