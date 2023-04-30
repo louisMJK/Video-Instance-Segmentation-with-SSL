@@ -178,6 +178,8 @@ def main():
         scheduler = optim.lr_scheduler.PolynomialLR(optimizer, total_iters=iters_per_epoch * (args.epochs), power=0.9)
     elif args.sched == 'cosine':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
+    elif args.sched == 'exp':
+        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_decay)
     else:
         scheduler = None
     
