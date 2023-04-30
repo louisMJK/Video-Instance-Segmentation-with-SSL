@@ -40,6 +40,8 @@ group.add_argument('--momentum', type=float, default=0.9, metavar='M')
 group.add_argument('--weight-decay', type=float, default=1e-6)
 group.add_argument('--lr-base', type=float, default=1e-3, metavar='LR')
 group.add_argument('--lr-decay', type=float, default=0.9)
+group.add_argument('--mode', type=str, default='triangular2')
+group.add_argument('--epoch-size-up', type=int, default=10)
 
 # Train
 group = parser.add_argument_group('Training parameters')
@@ -180,6 +182,15 @@ def main():
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
     elif args.sched == 'exp':
         scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_decay)
+    elif args.sched == 'cyclic':
+        scheduler = optim.lr_scheduler.CyclicLR(
+            optimizer, 
+            base_lr=args.lr_base / 10, 
+            max_lr=args.lr_base,
+            step_size_up=int(args.epoch_size_up * dataset_sizes['train'] / args.batch_size),
+            mode=args.mode,
+            cycle_momentum=(not (args.optim=='adam')),
+        )
     else:
         scheduler = None
     
@@ -255,7 +266,7 @@ def train_model(
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()
-                        if args.sched == 'poly':
+                        if args.sched == 'poly' or args.sched == 'cyclic':
                             scheduler.step()
                 
                 with torch.no_grad():
@@ -288,6 +299,8 @@ def train_model(
                 best_jac = jac_avg
                 if dist.get_rank() == 0:
                     torch.save(model_without_ddp.state_dict(), args.exp_dir + 'main_model_best.pth')
+                    torch.save(model_without_ddp.predictor.state_dict(), args.exp_dir + 'main_model_best.pth')
+                    torch.save(model_without_ddp.fcn_resnet.state_dict(), args.exp_dir + 'main_model_best.pth')
 
     time_elapsed = time.time() - t_start
     print(f'Training completed in {time_elapsed // 60:.0f} min {time_elapsed % 60:.0f} s')
