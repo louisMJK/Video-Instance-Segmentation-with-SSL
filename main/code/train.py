@@ -21,12 +21,13 @@ from data import ImagesToMaskDataset
 from models.main_model import MainModel
 
 
-parser = argparse.ArgumentParser(description='PyTorch Instance Segementation')
+parser = argparse.ArgumentParser(description='PyTorch Video Instance Segementation')
 
 # Model parameters
 group = parser.add_argument_group('Model parameters')
 group.add_argument('--predictor-dir', default='', type=str)
 group.add_argument('--fcn-dir', default='', type=str)
+group.add_argument('--main-model-dir', default=None, type=str)
 group.add_argument('--freeze-predictor', action='store_true', default=False)
 group.add_argument('--freeze-backbone', action='store_true', default=False)
 group.add_argument('--freeze-fcn-head', action='store_true', default=False)
@@ -36,7 +37,7 @@ group = parser.add_argument_group('Optimizer parameters')
 group.add_argument('--sched', default='cosine', type=str, metavar='SCHEDULER')
 group.add_argument('--optim', default='adam', type=str, metavar='OPTIMIZER') 
 group.add_argument('--momentum', type=float, default=0.9, metavar='M')
-group.add_argument('--weight-decay', type=float, default=2e-5)
+group.add_argument('--weight-decay', type=float, default=1e-6)
 group.add_argument('--lr-base', type=float, default=1e-3, metavar='LR')
 group.add_argument('--lr-decay', type=float, default=0.9)
 
@@ -116,8 +117,11 @@ def main():
     model = MainModel()
     
     # load trained weights
-    model.predictor.load_state_dict(torch.load(args.predictor_dir, map_location='cpu'), strict=True)
-    model.fcn_resnet.load_state_dict(torch.load(args.fcn_dir, map_location='cpu'), strict=True)
+    if args.main_model_dir is not None:
+        model.load_state_dict(torch.load(args.main_model_dir, map_location='cpu'), strict=True)
+    else:
+        model.predictor.load_state_dict(torch.load(args.predictor_dir, map_location='cpu'), strict=True)
+        model.fcn_resnet.load_state_dict(torch.load(args.fcn_dir, map_location='cpu'), strict=True)
 
     model.to(device)
 
@@ -233,6 +237,7 @@ def train_model(
                 model.eval()
 
             running_loss = 0.0
+            # running_indices = 0.0
             masks_pred = np.zeros((0, 160, 240))
             masks = np.zeros((0, 160, 240))
 
@@ -280,7 +285,7 @@ def train_model(
             if phase == 'val' and jac_avg > best_jac:
                 best_jac = jac_avg
                 if dist.get_rank() == 0:
-                    torch.save(model_without_ddp, args.exp_dir + 'model_best.pth')
+                    torch.save(model_without_ddp.state_dict(), args.exp_dir + 'main_model_best.pth')
 
     time_elapsed = time.time() - t_start
     print(f'Training completed in {time_elapsed // 60:.0f} min {time_elapsed % 60:.0f} s')
