@@ -228,19 +228,18 @@ def train_model(
                 with torch.set_grad_enabled(phase=='train'):
                     outputs = model(inputs)
                     loss = criterion(outputs, targets.long())
-                    # IoU
-                    out = outputs['out']
-                    masks_pred = out.cpu().detach().numpy().argmax(1)
-                    jaccard_idx = jaccard(targets.cpu().detach(), torch.Tensor(masks_pred)).item()
-
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()
                         if args.sched == 'poly':
                             scheduler.step()
 
-                running_loss += loss.item() * inputs.size(0)
-                running_indices += jaccard_idx
+                with torch.no_grad():
+                    running_loss += loss.item() * inputs.size(0)
+                    out = outputs['out']
+                    masks_batch = out.cpu().detach().argmax(1)
+                    jac = jaccard(masks_batch, targets)
+                    running_indices += jac
 
             if phase == 'train':
                 scheduler.step()
@@ -274,7 +273,7 @@ def train_model(
     print(f'Best Validation Jaccard: {best_jac:.4f}')
 
     # load best model weights
-    model_without_ddp.load_state_dict(best_model_wts)
+    torch.save(best_model_wts, args.exp_dir + 'fcn_resnet50_' + str(best_jac) + '.pth')
 
     return losses, jaccard_indices
 
