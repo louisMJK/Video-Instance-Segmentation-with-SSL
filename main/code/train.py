@@ -120,12 +120,16 @@ def main():
     
     # load trained weights
     if args.main_model_dir is not None:
+        # model = torch.load(args.main_model_dir, map_location='cpu')
         model.load_state_dict(torch.load(args.main_model_dir, map_location='cpu'), strict=True)
     else:
         model.predictor.load_state_dict(torch.load(args.predictor_dir, map_location='cpu'), strict=True)
         model.fcn_resnet.load_state_dict(torch.load(args.fcn_dir, map_location='cpu'), strict=True)
 
     model.to(device)
+
+    for p in model.parameters():
+        p.requires_grad = True
 
     # freeze
     if args.freeze_predictor:
