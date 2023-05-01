@@ -289,10 +289,13 @@ def train_model(
             epoch_loss = running_loss / dataset_sizes[phase]
             jac = jaccard(torch.Tensor(masks_pred), torch.Tensor(masks))
 
-            metric_logger.update(loss=epoch_loss, jac=jac, lr=optimizer.param_groups[0]["lr"])
+            if phase == 'train':
+                metric_logger.update(loss_train=epoch_loss, jac_train=jac, lr=optimizer.param_groups[0]["lr"])
+            else:
+                metric_logger.update(loss_val=epoch_loss, jac_val=jac, lr=optimizer.param_groups[0]["lr"])
 
-            loss_avg = metric_logger.meters['loss'].avg
-            jac_avg = metric_logger.meters['jac'].avg
+            loss_avg = metric_logger.meters['loss_' + phase].avg
+            jac_avg = metric_logger.meters['jac_' + phase].avg
             losses[phase].append(loss_avg)
             jaccard_indices[phase].append(jac_avg)
 

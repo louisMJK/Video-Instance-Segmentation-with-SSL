@@ -9,31 +9,6 @@ from PIL import Image
 from collections import deque, defaultdict
 
 
-class MaskDataset(Dataset):
-    def __init__(self, root='../../dataset/train/', transform=None):
-        self.root = root
-        self.transform = transform
-        self.vid_list = sorted(os.listdir(root))
-        self.img_list = ['image_' + str(i) + '.png' for i in range(22)]
-    
-    def __len__(self):
-        return len(self.vid_list) * 22
-
-    def __getitem__(self, idx):
-        vid_idx = idx // 22
-        img_idx = idx % 22
-        # load image
-        img_path = os.path.join(self.root, self.vid_list[vid_idx], self.img_list[img_idx])
-        img = Image.open(img_path).convert("RGB")
-        # load mask
-        mask_path = os.path.join(self.root, self.vid_list[vid_idx], 'mask.npy')
-        target = torch.Tensor(np.load(mask_path)[img_idx])
-        # transforms
-        if self.transform is not None:
-            img, target = self.transform(img, target)
-        return img, target
-
-
 def criterion(inputs, target):
     losses = {}
     for name, x in inputs.items():
