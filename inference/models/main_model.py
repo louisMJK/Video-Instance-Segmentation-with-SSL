@@ -1,13 +1,10 @@
 from torch import nn
 from torchvision import models
-from simvp_model import SimVP_Model
+from .simvp_model import SimVP_Model
 
-
-class LargeModel(nn.Module):
-    """Large Model for the End to End Task"""
-
+class MainModel(nn.Module):
     def __init__(self):
-        super(LargeModel, self).__init__()
+        super().__init__()
         self.predictor = SimVP_Model()
         self.fcn_resnet = models.segmentation.fcn_resnet50(
             weights=None,
@@ -16,9 +13,9 @@ class LargeModel(nn.Module):
             aux_loss=True,
         )
 
-
-    def forward(self, x, **kwargs):
+    def forward(self, x):
         x = self.predictor(x)
+        x = x[:, -1, :, :, :]
         x = self.fcn_resnet(x)
         return x
 

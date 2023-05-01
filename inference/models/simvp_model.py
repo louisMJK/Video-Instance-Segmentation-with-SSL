@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from modules import ConvSC, GASubBlock
+from .modules import ConvSC, GASubBlock
 
 class SimVP_Model(nn.Module):
     r"""SimVP Model
@@ -11,7 +11,7 @@ class SimVP_Model(nn.Module):
 
     """
 
-    def __init__(self, in_shape = (11,3,160,240), hid_S=128, hid_T=512, N_S=4, N_T=8, model_type='gSTA',
+    def __init__(self, in_shape = (11,3,160,240), hid_S=64, hid_T=512, N_S=4, N_T=8, model_type='gSTA',
                  mlp_ratio=8., drop=0.0, drop_path=0.0, spatio_kernel_enc=3,
                  spatio_kernel_dec=3, **kwargs): #these are standard settings
         super(SimVP_Model, self).__init__()
