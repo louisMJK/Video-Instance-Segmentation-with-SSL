@@ -13,6 +13,7 @@ import pandas as pd
 from datetime import datetime
 import yaml
 import argparse
+import copy
 import matplotlib.pyplot as plt
 
 from utils import criterion, init_distributed_mode, mkdir, MetricLogger
@@ -237,6 +238,7 @@ def train_model(
     model_without_ddp = model
     if args.distributed:
         model_without_ddp = model.module
+    best_model_weights = copy.deepcopy(model_without_ddp.state_dict())
 
     best_jac = 0.0
     losses = {'train': [], 'val': []}
@@ -307,8 +309,12 @@ def train_model(
             # save best model
             if phase == 'val' and jac_avg > best_jac:
                 best_jac = jac_avg
+                best_model_weights = copy.deepcopy(model_without_ddp.state_dict())
                 if dist.get_rank() == 0:
-                    torch.save(model_without_ddp.state_dict(), args.exp_dir + 'main_model_best.pth')
+                    torch.save(best_model_weights, args.exp_dir + 'main_model_best.pth')
+    
+    # save best model
+    torch.save(best_model_weights, args.exp_dir + 'model_best-' + str(best_jac) + '.pth')
 
     time_elapsed = time.time() - t_start
     print(f'Training completed in {time_elapsed // 60:.0f} min {time_elapsed % 60:.0f} s')
