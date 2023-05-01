@@ -312,9 +312,6 @@ def train_model(
                 best_model_weights = copy.deepcopy(model_without_ddp.state_dict())
                 if dist.get_rank() == 0:
                     torch.save(best_model_weights, args.exp_dir + 'main_model_best.pth')
-    
-    # save best model
-    torch.save(best_model_weights, args.exp_dir + 'model_best-' + str(best_jac) + '.pth')
 
     time_elapsed = time.time() - t_start
     print(f'Training completed in {time_elapsed // 60:.0f} min {time_elapsed % 60:.0f} s')
