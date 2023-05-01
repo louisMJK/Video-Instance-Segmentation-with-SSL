@@ -39,6 +39,9 @@ group.add_argument('--optim', default='adam', type=str, metavar='OPTIMIZER')
 group.add_argument('--momentum', type=float, default=0.9, metavar='M')
 group.add_argument('--weight-decay', type=float, default=1e-6)
 group.add_argument('--lr-base', type=float, default=1e-3, metavar='LR')
+group.add_argument('--lr-pred', type=float, default=1e-5, metavar='LR')
+group.add_argument('--lr-backbone', type=float, default=1e-2, metavar='LR')
+group.add_argument('--lr-fcn', type=float, default=1e-3, metavar='LR')
 group.add_argument('--lr-decay', type=float, default=0.9)
 group.add_argument('--mode', type=str, default='triangular2')
 group.add_argument('--epoch-size-up', type=int, default=10)
@@ -163,12 +166,12 @@ def main():
     
     # params
     params_to_optimize = [
-        {"params": [p for p in model_without_ddp.predictor.parameters() if p.requires_grad]},
-        {"params": [p for p in model_without_ddp.fcn_resnet.backbone.parameters() if p.requires_grad]},
-        {"params": [p for p in model_without_ddp.fcn_resnet.classifier.parameters() if p.requires_grad]},
+        {"params": [p for p in model_without_ddp.predictor.parameters() if p.requires_grad], "lr": args.lr_pred},
+        {"params": [p for p in model_without_ddp.fcn_resnet.backbone.parameters() if p.requires_grad], "lr": args.lr_backbone},
+        {"params": [p for p in model_without_ddp.fcn_resnet.classifier.parameters() if p.requires_grad], "lr": args.lr_fcn},
     ]
     params = [p for p in model_without_ddp.fcn_resnet.aux_classifier.parameters() if p.requires_grad]
-    params_to_optimize.append({"params": params, "lr": args.lr_base * 5})
+    params_to_optimize.append({"params": params, "lr": args.lr_fcn * 10})
 
     # optimizer
     if args.optim == 'sgd':
