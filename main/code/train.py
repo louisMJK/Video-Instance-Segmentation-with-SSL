@@ -294,7 +294,7 @@ def train_model(
             else:
                 metric_logger.update(loss_val=epoch_loss, jac_val=jac, lr=optimizer.param_groups[0]["lr"])
 
-            loss_avg = metric_logger.meters['loss_' + phase].avg * args.world_size
+            loss_avg = metric_logger.meters['loss_' + phase].avg
             jac_avg = metric_logger.meters['jac_' + phase].avg
             losses[phase].append(loss_avg)
             jaccard_indices[phase].append(jac_avg)
