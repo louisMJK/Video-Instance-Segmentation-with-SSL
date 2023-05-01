@@ -306,8 +306,6 @@ def train_model(
                 best_jac = jac_avg
                 if dist.get_rank() == 0:
                     torch.save(model_without_ddp.state_dict(), args.exp_dir + 'main_model_best.pth')
-                    torch.save(model_without_ddp.predictor.state_dict(), args.exp_dir + 'main_model_best.pth')
-                    torch.save(model_without_ddp.fcn_resnet.state_dict(), args.exp_dir + 'main_model_best.pth')
 
     time_elapsed = time.time() - t_start
     print(f'Training completed in {time_elapsed // 60:.0f} min {time_elapsed % 60:.0f} s')
