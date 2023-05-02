@@ -1,3 +1,9 @@
 # Dataset
 
-Put dataset here.
+- /unlabeled
+
+- /train
+
+- /val
+
+- /hidden
