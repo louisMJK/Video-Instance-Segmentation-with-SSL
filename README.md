@@ -1,7 +1,5 @@
 # Video Instance Segmentation with Self-Supervised Learning
 
-## Self-Supervised Learning Models
+## Data
 
-- BYOL
-  
-  - https://github.com/lightly-ai/lightly
+## Models
