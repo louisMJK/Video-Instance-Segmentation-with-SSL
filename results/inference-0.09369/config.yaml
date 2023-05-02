@@ -1,0 +1,5 @@
+batch_size: 4
+data_dir: ../dataset/
+model_dir: /scratch/yl10745/dl/main/output/model-0.0999/main_model_best.pth
+val: true
+workers: 4
